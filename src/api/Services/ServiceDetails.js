@@ -14,6 +14,17 @@ export const getServiceDetailById = async (id) => {
         throw error;
     }
 };
+export const serviceFormMapping = async (id) => {
+    
+    try {
+        const response = await axiosInstance.post(`/getServiceFormFullMapping`,{serviceId:id});
+        
+        return response.data;
+    } catch (error) {
+        console.error("Error fetching service detail:", error);
+        throw error;
+    }
+};
 
 /**
  * Fetch tasks for a service detail

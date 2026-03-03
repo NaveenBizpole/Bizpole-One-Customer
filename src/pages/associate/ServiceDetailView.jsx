@@ -7,10 +7,11 @@ import {
     FolderOpen, Receipt, FileStack, LayoutDashboard, History,
     Target, Package, CreditCard, PieChart, Download, Eye
 } from 'lucide-react';
-import { getServiceDetailById, getServiceDeliverablesByServiceDetailId, getServiceTasks } from '../../api/Services/ServiceDetails';
+import { getServiceDetailById, getServiceDeliverablesByServiceDetailId, getServiceTasks, serviceFormMapping } from '../../api/Services/ServiceDetails';
 import { format } from 'date-fns';
 import { getSecureItem } from '../../utils/secureStorage';
 import jsPDF from 'jspdf';
+import DocumentCollectionTab from '../../components/Modals/DocumentationCollectionTab';
 
 const ServiceDetailView = () => {
     const { id } = useParams();
@@ -82,7 +83,11 @@ const ServiceDetailView = () => {
             setLoading(true);
             try {
                 const response = await getServiceDetailById(id);
-                console.log("response", response);
+                console.log("responseFFF", response);
+                console.log("ServiceID", response.ServiceID);
+                const serviceRes = await serviceFormMapping(response.ServiceID)
+                console.log({serviceRes});
+                
                 if (response) {
                     setService(response);
                 }
@@ -440,16 +445,7 @@ const ServiceDetailView = () => {
                         </div>
                     </div>
                 ) : activeTab === 'Document Collection' ? (
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm animate-in fade-in duration-500 min-h-[400px] overflow-hidden">
-                        <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 text-center">
-                            <h2 className="text-xl font-bold text-slate-900 mb-2">Document Collection</h2>
-                            <p className="text-xs text-slate-500 font-medium">Real-time data for document collection is being aggregated.</p>
-                        </div>
-                        <div className="py-20 text-center text-slate-400">
-                            <FileStack className="w-12 h-12 text-slate-100 mx-auto mb-4" />
-                            <p>No documents collected yet.</p>
-                        </div>
-                    </div>
+                    <DocumentCollectionTab serviceId={id} />
                 ) : (
                     <div className="bg-white rounded-2xl border border-slate-200 border-dashed p-16 text-center animate-in fade-in duration-500">
                         <Activity className="w-12 h-12 text-slate-200 mx-auto mb-4" />
