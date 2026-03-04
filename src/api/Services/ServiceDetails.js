@@ -21,7 +21,19 @@ export const serviceFormMapping = async (id) => {
         
         return response.data;
     } catch (error) {
-        console.error("Error fetching service detail:", error);
+        console.error("Error fetching service form:", error);
+        throw error;
+    }
+};
+
+
+export const serviceFormSave = async (payload) => {
+    
+    try {
+        const response = await axiosInstance.post(`/saveFormResponse`,payload);
+        return response.data;
+    } catch (error) {
+        console.error("Error save the service form:", error);
         throw error;
     }
 };
@@ -69,3 +81,6 @@ export const getServiceTasks = async (params) => {
         throw error;
     }
 };
+
+
+
