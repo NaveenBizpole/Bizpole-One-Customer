@@ -137,16 +137,12 @@ const AssociateQuotes = () => {
 
 
 
-    const encrypt = (id) => {
+  const encrypt = (id) => {
         const secret =
             import.meta.env.VITE_QUOTE_LINK_SECRET ||
             "q3!9fKs7@pLzXr84$nmYtB!cVZdQ3";
-
         return CryptoJS.AES.encrypt(String(id), secret).toString();
     };
-
-
-
 
 
 
@@ -307,22 +303,27 @@ const AssociateQuotes = () => {
                                                     ? format(new Date(deal.ClosureDate), "dd-MM-yyyy")
                                                     : "--"}
                                             </td>
-                                            <td className="px-6 py-4 text-sm text-slate-600 max-w-[200px] truncate">
+                                            <td className="px-6 py-4 text-sm text-slate-600 max-w-[220px] truncate">
                                                 {deal.packageName ? (
                                                     <div className="flex flex-col">
                                                         <span className="font-bold text-[#4b49ac] text-[12px]">
                                                             {deal.packageName}
                                                         </span>
-                                                        <span className="text-[10px] text-slate-400">
-                                                            {deal.serviceNames || "--"}
+                                                        <span className="text-[10px] text-slate-400 truncate">
+                                                            {deal.services?.map(s => s.serviceName).join(", ") || "--"}
                                                         </span>
                                                     </div>
                                                 ) : (
-                                                    deal.serviceNames || deal.serviceName || "--"
+                                                    deal.serviceNames ||
+                                                    (deal.services?.map(s => s.serviceName).join(", ")) ||
+                                                    "--"
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 text-sm text-slate-600">
-                                                {deal.serviceCategory || "--"}
+                                                {deal.serviceCategory ||
+                                                    (deal.services?.length > 0
+                                                        ? [...new Set(deal.services.map(s => s.serviceCategory))].join(", ")
+                                                        : "--")}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span
