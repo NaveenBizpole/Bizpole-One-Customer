@@ -14,13 +14,18 @@ export const getServices = async ({ page = 1, limit = 10, filter = "", categoryI
 export const getServicesByCategory = async (categoryId, { page = 1, limit = 2 } = {}) => {
   console.log({ categoryId });
 
-  if (!categoryId) return { data: [] };
+  if (!categoryId) return { data: [], total: 0 };
   const params = { page, limit };
 
   const res = await axiosInstance.get(`/service-categories/${categoryId}`, { params });
-  return res.data?.data?.Services
-    ? { data: res.data.data.Services, total: res.data.data.total || 0 }
-    : { data: [], total: 0 };
+  if (res.data?.data) {
+    const { Services, pagination } = res.data.data;
+    return {
+      data: Services || [],
+      total: pagination?.total || (Services ? Services.length : 0)
+    };
+  }
+  return { data: [], total: 0 };
 };
 
 // ✅ Fetch service categories
@@ -68,6 +73,19 @@ export const getServicePackages = async () => {
   return res.data;
 };
 
+// Fetch price and currency for a service and state (GET, params: StateName, ServiceID)
+export const getServicePriceCurrency = async ({ StateName, ServiceID }) => {
+  try {
+    const res = await axiosInstance.get("/service-price-currency", {
+      params: { StateName, ServiceID }
+    });
+    return res.data;
+  } catch (err) {
+    console.error("Error fetching service price/currency:", err);
+    return { success: false, message: err.message };
+  }
+};
+
 export default {
   getServices,
   getServiceCategories,
@@ -75,4 +93,5 @@ export default {
   getServiceById,
   getServicePrice,
   getServicePackages,
+  getServicePriceCurrency,
 };
