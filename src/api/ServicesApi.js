@@ -41,28 +41,26 @@ export const getServiceById = async ({ ServiceId }) => {
 };
 
 // ✅ Fetch all service prices for a state, and filter exact service price
-export const getServicePrice = async ({ ServiceId, StateId, StateName }) => {
+export const getServicePrice = async ({ ServiceId, StateId }) => {
   try {
-    if (!StateId && !StateName) {
-      throw new Error("StateID or StateName is required.");
+    if (!StateId || !ServiceId) {
+      throw new Error("StateID and ServiceID are required.");
     }
-
-    // Fetch all services price for that state
-    const res = await axiosInstance.post("/filterServices", { StateId, StateName });
+    // Call bulk API endpoint
+    const res = await axiosInstance.post("/service-price-currency/bulk", {
+      StateID: StateId,
+      ServiceIDs: [ServiceId],
+      isIndividual: 1
+    });
     const allPrices = res.data?.data || [];
-
-    // Find the matching service price
-    const matchedService = allPrices.find(
-      (service) => String(service.ServiceID) === String(ServiceId)
-    );
-
+    // Return first matching price object
     return {
       success: true,
-      data: matchedService || null,
+      data: allPrices[0] || null,
       allPrices,
     };
   } catch (err) {
-    console.error("Error fetching service price:", err);
+    console.error("Error fetching service price (bulk):", err);
     return { success: false, message: err.message };
   }
 };

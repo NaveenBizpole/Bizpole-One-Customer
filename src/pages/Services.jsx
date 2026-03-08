@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
+import { CartContext } from "../context/CartContext";
 import { useNavigate } from "react-router-dom";
 import { upsertQuote } from "../api/Quote";
 import { getSecureItem } from "../utils/secureStorage";
@@ -218,14 +219,9 @@ const Services = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [filter, setFilter] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
-  const [selectedServices, setSelectedServices] = useState(() => {
-    try {
-      const stored = localStorage.getItem("SelectedServices");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  const { cart, addToCart, removeFromCart } = useContext(CartContext);
+  // selectedServices is now derived from cart keys
+  const selectedServices = Object.keys(cart).map(id => Number(id));
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [stateId, setStateId] = useState(() => localStorage.getItem("StateID"));
   const [bulkPrices, setBulkPrices] = useState({});
@@ -346,22 +342,17 @@ const Services = () => {
   };
 
   const handleSelectService = (serviceId) => {
-    setSelectedServices(prev => {
-      let updated;
-      if (prev.includes(serviceId)) {
-        updated = prev.filter(id => id !== serviceId);
-      } else {
-        updated = [...prev, serviceId];
-      }
-      localStorage.setItem("SelectedServices", JSON.stringify(updated));
-      return updated;
-    });
+    if (selectedServices.includes(serviceId)) {
+      removeFromCart(serviceId);
+    } else {
+      // Find the service and its price to add to cart
+      const svc = services.find(s => s.ServiceID === serviceId);
+      const price = bulkPrices[serviceId] || {};
+      addToCart(serviceId, { ...price, ServiceName: svc?.ServiceName || svc?.Name });
+    }
   };
 
-  // Keep localStorage in sync if selection is cleared elsewhere
-  useEffect(() => {
-    localStorage.setItem("SelectedServices", JSON.stringify(selectedServices));
-  }, [selectedServices]);
+  // No need to sync SelectedServices in localStorage; handled by CartContext
 
   // Helper to get price for a service
   const getBulkPrice = (serviceId) => {
@@ -568,7 +559,9 @@ const Services = () => {
                       return (
                         <div key={sid} className="flex justify-between items-center text-xs py-1 border-b border-gray-100 last:border-b-0">
                           <span className="truncate max-w-[110px]" title={svc?.ServiceName}>{svc?.ServiceName || 'Service'}</span>
-                          <span className="font-semibold text-green-700">{price ? `₹${price}` : '--'}</span>
+                          <span className="font-semibold text-green-700">
+                            {price && typeof price === 'object' ? `₹${price.TotalFee}` : price ? `₹${price}` : '--'}
+                          </span>
                         </div>
                       );
                     })}
@@ -579,14 +572,19 @@ const Services = () => {
                     <span className="text-green-700">
                       ₹{
                         selectedServices.reduce((sum, sid) => {
-                          let price = bulkPrices[sid]?.TotalFee;
-                          if (!price) {
+                          let price = bulkPrices[sid];
+                          let value = 0;
+                          if (price && typeof price === 'object' && price.TotalFee) {
+                            value = parseFloat(price.TotalFee) || 0;
+                          } else if (typeof price === 'number' || typeof price === 'string') {
+                            value = parseFloat(price) || 0;
+                          } else {
                             try {
                               const priceCache = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}");
-                              price = priceCache[sid];
+                              value = parseFloat(priceCache[sid]) || 0;
                             } catch {}
                           }
-                          return sum + (parseFloat(price) || 0);
+                          return sum + value;
                         }, 0).toLocaleString('en-IN')
                       }
                     </span>
@@ -699,8 +697,9 @@ const Services = () => {
       }
     }}
 >
-    Checkout
-</button> <button
+  Request Quote
+</button>
+ {/* <button
                     style={{marginTop: 8}}
                     className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 px-4 py-2 rounded-xl shadow-md hover:shadow-xl transition-all duration-300"
                     onClick={async () => {
@@ -807,7 +806,7 @@ const Services = () => {
                     }}
                   >
                     Checkout
-                  </button>
+                  </button> */}
                   <button
                     onClick={() => setSelectedServices([])}
                     className="text-xs text-red-400 hover:text-red-600 mt-1 transition-colors w-full text-center"
