@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Upload, Info, Loader2, CheckCircle2, AlertCircle, Layout } from 'lucide-react';
 import { serviceFormSave } from '../../api/Services/ServiceDetails';
+import { uploadFile } from '../../api/StorageApi';
+
 
 const ServiceTaskForm = ({ task, serviceDetails, onClose, onSuccess }) => {
     const [formData, setFormData] = useState({});
@@ -60,6 +62,25 @@ const ServiceTaskForm = ({ task, serviceDetails, onClose, onSuccess }) => {
         setStatus('saving');
 console.log("Submitting form with data:", serviceDetails); // Debug log
         try {
+            const finalFormData = { ...formData };
+
+            // Handle file uploads
+            for (const key in finalFormData) {
+                if (finalFormData[key] instanceof File) {
+                    try {
+                        const uploadRes = await uploadFile(finalFormData[key]);
+                        if (uploadRes.success) {
+                            finalFormData[key] = uploadRes.data.url;
+                        } else {
+                            throw new Error(uploadRes.message || "Upload failed");
+                        }
+                    } catch (uploadErr) {
+                        console.error(`Error uploading file for ${key}:`, uploadErr);
+                        throw new Error(`Failed to upload file for ${key}`);
+                    }
+                }
+            }
+
             const payload = {
                 CompanyID: serviceDetails?.CompanyID,
                 ServiceID: serviceDetails?.ServiceID,
@@ -73,16 +94,25 @@ console.log("Submitting form with data:", serviceDetails); // Debug log
                         FormBuilderId: item.Id?.toString() || "",
                         Sections: [{
                             SectionID: section.SectionID,
-                            Fields: section.Fields.map(field => ({
-                                FieldID: field.FieldID,
-                                FieldKey: field.FieldName,
-                                FieldType: field.FieldType,
-                                Value: formData[`${section.SectionID}_${field.FieldID}`] || ""
-                            }))
+                            Fields: section.Fields.map(field => {
+                                const val = finalFormData[`${section.SectionID}_${field.FieldID}`] || "";
+                                const isFile = (field.FieldType || '').toLowerCase() === 'file';
+                                const fieldObj = {
+                                    FieldID: field.FieldID,
+                                    FieldKey: field.FieldName,
+                                    FieldType: field.FieldType,
+                                    Value: val
+                                };
+                                if (isFile) {
+                                    fieldObj.field_text = val;
+                                }
+                                return fieldObj;
+                            })
                         }]
                     }))
                 }
             };
+
 
             await serviceFormSave(payload);
             setStatus('success');
