@@ -17,7 +17,7 @@ export default function Navbar() {
     { label: "Product", path: "/products" },
     { label: "Bizpole One", path: "/bizpoleone" },
     { label: "Partners", path: "/partners" },
-    { label: "Companies", path: "/companies" },
+    // { label: "Companies", path: "/companies" },
   ];
 
 

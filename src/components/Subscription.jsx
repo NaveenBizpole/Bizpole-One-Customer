@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getPackagesByServiceType } from "../api/ServiceType";
 import { upsertQuote } from "../api/Quote";
 import { motion } from "framer-motion";
 import { Check, Calendar } from "lucide-react";
 import { setSecureItem, getSecureItem } from "../utils/secureStorage"; // ✅ Import secure storage
+import { CartContext } from "../context/CartContext";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -16,25 +17,22 @@ const Subscription = () => {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedCount, setSelectedCount] = useState(0);
-  // Track selected services count from localStorage
-  useEffect(() => {
-    const updateCount = () => {
-      try {
-        const arr = JSON.parse(localStorage.getItem("SelectedServices") || "[]");
-        setSelectedCount(Array.isArray(arr) ? arr.length : 0);
-      } catch {
-        setSelectedCount(0);
-      }
-    };
-    updateCount();
-    window.addEventListener("storage", updateCount);
-    return () => window.removeEventListener("storage", updateCount);
-  }, []);
+  // Use CartContext for selected services and prices
+  const { cart } = useContext(CartContext);
+  const selectedServiceIds = Object.keys(cart).map(Number);
+  const selectedCount = selectedServiceIds.length;
+  const selectedTotal = selectedServiceIds.reduce((sum, sid) => {
+    const item = cart[sid];
+    if (item && item.price && !isNaN(Number(item.price.TotalFee))) {
+      return sum + Number(item.price.TotalFee);
+    }
+    return sum;
+  }, 0);
 
   // 🔹 Handle quote creation
   const handleQuote = async (plan) => {
     try {
+      plan.is_manual = 0;
       const data = await upsertQuote(plan);
 
       // If QuoteID is present, update user securely
@@ -168,6 +166,17 @@ const Subscription = () => {
                 No packages found.
               </div>
             )}
+            {/* Individual service summary */}
+            {/* {!loading && !error && selectedCount > 0 && (
+              <div className="col-span-4 text-center text-gray-800 border-2 border-[#F3C625] rounded-2xl p-4 mb-6 bg-yellow-50">
+                <div className="font-bold mb-2">Selected Individual Services</div>
+                <div className="flex flex-col items-center gap-1">
+                  <span>{selectedCount} service{selectedCount > 1 ? "s" : ""} selected</span>
+                  <span className="text-green-700 font-bold">Total: ₹{selectedTotal.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+            )} */}
+            {/* Packages */}
             {!loading &&
               !error &&
               plans.map((plan, i) => (

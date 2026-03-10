@@ -1,3 +1,4 @@
+import { toast } from "react-toastify";
 import React, { useEffect, useState, useContext } from "react";
 import { CartContext } from "../context/CartContext";
 import { useNavigate } from "react-router-dom";
@@ -71,7 +72,7 @@ const getCategoryIcon = (name = "") => {
 
 import { getAllStates } from "../api/States";
 
-const ServiceCard = ({ service, onLearnMore, isSelected, onSelect, price, onSelectState, stateId, bulkLoading }) => {
+const ServiceCard = ({ service, onLearnMore, isSelected, onSelect, price, onSelectState, stateId, bulkLoading, setShowSigninModal }) => {
   const features = service.Features || [];
   const categoryName = service.Category?.CategoryName || service.CategoryName;
   return (
@@ -177,9 +178,107 @@ const ServiceCard = ({ service, onLearnMore, isSelected, onSelect, price, onSele
               className="flex-1 flex items-center justify-center text-xs font-semibold rounded-lg px-3 py-2 border border-yellow-400 text-black hover:bg-yellow-500 transition-colors"
               style={{ minHeight: 36 }}
               type="button"
-              // You can add an onClick handler here if you want to open a contact/enquiry modal
+              onClick={async (e) => {
+                e.stopPropagation();
+                const token = localStorage.getItem('token');
+                if (!token) {
+                  setShowSigninModal(true);
+                  return;
+                }
+                try {
+                  const user = getSecureItem("user");
+                  const selectedCompany = getSecureItem("selectedCompany");
+                  const franchiseeId = user?.FranchiseeId || user?.FranchiseeID || 1;
+                  const employeeId = user?.EmployeeID || 9;
+                  const employeeName = user?.FirstName || "admin";
+                  const customerId = user?.CustomerID || 2;
+                  const customerName = user?.FirstName ? `${user.FirstName} ${user.LastName || ''}`.trim() : "John Doe";
+                  const stateName = selectedCompany?.State || "";
+                  const companyName = selectedCompany?.CompanyName || "";
+                  const companyId = selectedCompany?.CompanyID || null;
+                  // Use price if available, else default
+                  const priceObj = price || {
+                    ProfessionalFee: 0,
+                    VendorFee: 0,
+                    GovtFee: 0,
+                    ContractorFee: 0,
+                    GSTPercent: 0,
+                    GstAmount: 0,
+                    CGST: 0,
+                    SGST: 0,
+                    IGST: 0,
+                    Discount: 0,
+                    Rounding: 0,
+                    TotalFee: 0,
+                    AdvanceAmount: 0
+                  };
+                  const serviceDetails = [
+                    {
+                      ServiceID: service?.ServiceID,
+                      ItemName: service?.ServiceName,
+                      ProfessionalFee: priceObj.ProfessionalFee ?? 100,
+                      VendorFee: priceObj.VendorFee ?? 100,
+                      GovtFee: priceObj.GovtFee ?? 100,
+                      ContractorFee: priceObj.ContractorFee ?? 100,
+                      GSTPercent: priceObj.GSTPercent ?? 0,
+                      GstAmount: priceObj.GstAmount ?? 18,
+                      CGST: priceObj.CGST ?? 9,
+                      SGST: priceObj.SGST ?? 9,
+                      IGST: priceObj.IGST ?? 0,
+                      Discount: priceObj.Discount ?? 0,
+                      Rounding: priceObj.Rounding ?? 0,
+                      Total: priceObj.TotalFee ?? (typeof priceObj === 'number' ? priceObj : 418),
+                      AdvanceAmount: priceObj.AdvanceAmount ?? 126,
+                      IsManual: 0,
+                      IsIndividual: 1
+                    }
+                  ];
+                  const payload = {
+                    IsIndividual: 1,
+                    IsMonthly: 0,
+                    
+                    FranchiseeID: franchiseeId,
+                    SelectedCompany: {
+                      CompanyID: companyId,
+                      CompanyName: companyName,
+                      State: stateName
+                    },
+                    SelectedCustomer: {
+                      CustomerID: customerId,
+                      CustomerName: customerName
+                    },
+                    QuoteCRE: {
+                      EmployeeID: employeeId,
+                      EmployeeName: employeeName
+                    },
+                    SourceOfSale: "Website",
+                    StateService: stateName,
+                    Remarks: "",
+                    QuoteStatus: "Draft",
+                    IsDirect: 1,
+                    ServiceDetails: serviceDetails,
+                    SelectedServices: [service?.ServiceID],
+                    SelectedServicePrices: { [service?.ServiceID]: priceObj },
+                    MailQuoteCustomers: [
+                      {
+                        CustomerID: customerId,
+                        CustomerName: customerName,
+                        Email: user?.Email || ""
+                      }
+                    ],
+                    PaymentType: 0,
+                    EmployeeID: employeeId
+                  };
+                  payload.is_manual = 0;
+                  await upsertQuote(payload);
+                  toast.success("Quote created successfully!");
+                  if (typeof navigate === 'function') navigate("/dashboard/bizpoleone");
+                } catch (err) {
+                  toast.error("Failed to create quote. Please try again.");
+                }
+              }}
             >
-              Enquire Now
+              Request Quote
             </button>
           )}
 
@@ -609,18 +708,10 @@ const Services = () => {
         const stateName = selectedCompany?.State || "";
         const companyName = selectedCompany?.CompanyName || "";
         const companyId = selectedCompany?.CompanyID || null;
-        
-        // Get selected services and prices from localStorage
-        let selectedServiceIds = [];
-        let selectedServicePrices = {};
-        try {
-          selectedServiceIds = JSON.parse(localStorage.getItem("SelectedServices") || "[]");
-        } catch {}
-        try {
-          selectedServicePrices = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}");
-        } catch {}
-        
-        // Build ServiceDetails from localStorage
+
+        // Use CartContext for selected services and prices
+        const selectedServiceIds = Object.keys(cart).map(Number);
+        // Build ServiceDetails from cart
         const serviceDetails = selectedServiceIds.map(sid => {
           let svc = services.find(s => s.ServiceID === sid);
           if (!svc) {
@@ -629,10 +720,7 @@ const Services = () => {
               svc = allCache.find(s => s.ServiceID === sid);
             } catch {}
           }
-          let price = selectedServicePrices[sid];
-          if (!price || typeof price !== 'object') {
-            price = bulkPrices[sid] || {};
-          }
+          const price = cart[sid] || {};
           return {
             ServiceID: svc?.ServiceID,
             ItemName: svc?.ServiceName,
@@ -654,6 +742,12 @@ const Services = () => {
           };
         });
 
+        // Build SelectedServicePrices from cart
+        const selectedServicePrices = {};
+        selectedServiceIds.forEach(sid => {
+          selectedServicePrices[sid] = cart[sid] || {};
+        });
+
         const payload = {
           IsIndividual: 1,
           IsMonthly: 0,
@@ -673,7 +767,7 @@ const Services = () => {
           },
           SourceOfSale: "Website",
           StateService: stateName,
-          Remarks: "",
+          Remarks: "Generated from services page",
           QuoteStatus: "Draft",
           IsDirect: 1,
           ServiceDetails: serviceDetails,
@@ -686,10 +780,11 @@ const Services = () => {
               Email: user?.Email || ""
             }
           ],
-          PaymentType: 1,
+          PaymentType: 0,
           EmployeeID: employeeId
         };
 
+        payload.is_manual = 0;
         const res = await upsertQuote(payload);
         navigate("/dashboard/bizpoleone");
       } catch (err) {
@@ -699,114 +794,7 @@ const Services = () => {
 >
   Request Quote
 </button>
- {/* <button
-                    style={{marginTop: 8}}
-                    className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 px-4 py-2 rounded-xl shadow-md hover:shadow-xl transition-all duration-300"
-                    onClick={async () => {
-                      const token = localStorage.getItem('token');
-                      if (!token) {
-                        setShowSigninModal(true);
-                        return;
-                      }
-                      try {
-                        const user = getSecureItem("user");
-                        const selectedCompany = getSecureItem("selectedCompany");
-                        const franchiseeId = user?.FranchiseeId || user?.FranchiseeID || 1;
-                        const employeeId = user?.EmployeeID || 9;
-                        const employeeName = user?.FirstName || "admin";
-                        const customerId = user?.CustomerID || 2;
-                        const customerName = user?.FirstName ? `${user.FirstName} ${user.LastName || ''}`.trim() : "John Doe";
-                        const stateName = selectedCompany?.State || "";
-                        const companyName = selectedCompany?.CompanyName || "";
-                        const companyId = selectedCompany?.CompanyID || null;
-                        // Get selected services and prices from localStorage
-                        let selectedServiceIds = [];
-                        let selectedServicePrices = {};
-                        try {
-                          selectedServiceIds = JSON.parse(localStorage.getItem("SelectedServices") || "[]");
-                        } catch {}
-                        try {
-                          selectedServicePrices = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}");
-                        } catch {}
-                        // Build ServiceDetails from localStorage, always send IsIndividual: 1
-                        const serviceDetails = selectedServiceIds.map(sid => {
-                          // Try to get service info from current page, else fallback to cache
-                          let svc = services.find(s => s.ServiceID === sid);
-                          if (!svc) {
-                            try {
-                              const allCache = JSON.parse(localStorage.getItem("AllServicesCache") || "[]");
-                              svc = allCache.find(s => s.ServiceID === sid);
-                            } catch {}
-                          }
-                          // Try to get price from SelectedServicePrices, fallback to bulkPrices, fallback to 0
-                          let price = selectedServicePrices[sid];
-                          if (!price || typeof price !== 'object') {
-                            price = bulkPrices[sid] || {};
-                          }
-                          return {
-                            ServiceID: svc?.ServiceID,
-                            ItemName: svc?.ServiceName,
-                            ProfessionalFee: price.ProfessionalFee ?? 100,
-                            VendorFee: price.VendorFee ?? 100,
-                            GovtFee: price.GovtFee ?? 100,
-                            ContractorFee: price.ContractorFee ?? 100,
-                            GSTPercent: price.GSTPercent ?? 0,
-                            GstAmount: price.GstAmount ?? 18,
-                            CGST: price.CGST ?? 9,
-                            SGST: price.SGST ?? 9,
-                            IGST: price.IGST ?? 0,
-                            Discount: price.Discount ?? 0,
-                            Rounding: price.Rounding ?? 0,
-                            Total: price.TotalFee ?? (typeof price === 'number' ? price : 418),
-                            AdvanceAmount: price.AdvanceAmount ?? 126,
-                            IsManual: 0,
-                            IsIndividual: 1
-                          };
-                        });
-                        const payload = {
-                          IsIndividual: 1,
-                          IsMonthly: 0,
-                          FranchiseeID: franchiseeId,
-                          SelectedCompany: {
-                            CompanyID: companyId,
-                            CompanyName: companyName,
-                            State: stateName
-                          },
-                          SelectedCustomer: {
-                            CustomerID: customerId,
-                            CustomerName: customerName
-                          },
-                          QuoteCRE: {
-                            EmployeeID: employeeId,
-                            EmployeeName: employeeName
-                          },
-                          SourceOfSale: "Website",
-                          StateService: stateName,
-                          Remarks: "",
-                          QuoteStatus: "Draft",
-                          IsDirect: 1,
-                          ServiceDetails: serviceDetails,
-                          SelectedServices: selectedServiceIds,
-                          SelectedServicePrices: selectedServicePrices,
-                          MailQuoteCustomers: [
-                            {
-                              CustomerID: customerId,
-                              CustomerName: customerName,
-                              Email: user?.Email || ""
-                            }
-                          ],
-                          PaymentType: 1,
-                          EmployeeID: employeeId
-                        };
-                        const res = await upsertQuote(payload);
-                        navigate("/dashboard/bizpoleone");
-                      } catch (err) {
-                        alert("Failed to create quote. Please try again.");
-                      }
-                    }}
-                  >
-                    Checkout
-                  </button> */}
+ 
                   <button
                     onClick={() => setSelectedServices([])}
                     className="text-xs text-red-400 hover:text-red-600 mt-1 transition-colors w-full text-center"
@@ -921,6 +909,7 @@ const Services = () => {
                       onSelectState={openStateModal}
                       stateId={stateId}
                       bulkLoading={bulkLoading}
+                      setShowSigninModal={setShowSigninModal}
                     />
                   ))}
                 </div>

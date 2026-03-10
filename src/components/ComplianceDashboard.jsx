@@ -96,6 +96,14 @@ const ComplianceDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(companyQuotes), selectedCompany?.CompanyID]);
 
+
+   const encrypt = (id) => {
+          const secret =
+              import.meta.env.VITE_QUOTE_LINK_SECRET ||
+              "q3!9fKs7@pLzXr84$nmYtB!cVZdQ3";
+          return CryptoJS.AES.encrypt(String(id), secret).toString();
+      };
+
   const handleViewDetails = (quote = null) => {
     const targetQuoteId = quote ? quote.QuoteID : quoteId;0
     if (!targetQuoteId) {
@@ -103,10 +111,12 @@ const ComplianceDashboard = () => {
       return;
     }
     const secret = "q3!9fKs7@pLzXr84$nmYtB!cVZdQ3";
-    const encrypted = CryptoJS.AES.encrypt(String(targetQuoteId), secret).toString();
+      const encrypted = encodeURIComponent(encrypt(targetQuoteId));
+    // const encrypted = CryptoJS.AES.encrypt(String(targetQuoteId), secret).toString();
     const url = `https://dev.bizpoleindia.in/quotes/saved-preview/${encodeURIComponent(encrypted)}`;
     window.open(url, "_blank");
   };
+
 
   const handleDownload = (quote = null) => {
     const targetQuoteId = quote ? quote.QuoteID : quoteId;

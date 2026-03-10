@@ -92,9 +92,11 @@ export const upsertQuote = async (plan) => {
       Remarks: plan.Remarks || "Generated from services page",
       IsIndividual: isIndividual ? 1 : 0,
       IsMonthly: isIndividual ? 0 : (plan.IsMonthly || 0),
+    is_manual : 0,
+    PaymentType: 0,
       QuoteStatus: plan.QuoteStatus || "Draft",
       IsDirect: plan.IsDirect !== undefined ? plan.IsDirect : 1,
-      PaymentType: plan.PaymentType || 1,
+      PaymentType: plan.PaymentType || 0,
       EmployeeID: plan.EmployeeID || agentId || 9,
       StateService: plan.StateService || SelectedCompany?.State || "",
     };

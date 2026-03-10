@@ -1,3 +1,17 @@
+// Fetch tasks for a service by serviceDetailsId
+export const getServiceTasks = async ({ serviceDetailsId, page = 1, limit = 10 }) => {
+  try {
+    const response = await axiosInstance.post("/getServiceTasks", {
+      serviceDetailsId,
+      page,
+      limit
+    });
+    return response.data.data;
+  } catch (error) {
+    console.error("Error fetching service tasks:", error);
+    throw error;
+  }
+};
 // Fetch company services by companyId
 import axiosInstance from "./axiosInstance";
 export const getCompanyServices = async (companyId) => {

@@ -149,7 +149,7 @@ const BizpoleOneDashboardLayout = () => {
               </li>
 
               {/* Chat */}
-              <li>
+              {/* <li>
                 <NavLink
                   to="/dashboard/bizpoleone/chat"
                   className={({ isActive }) =>
@@ -163,7 +163,7 @@ const BizpoleOneDashboardLayout = () => {
                   <MessageCircle size={20} />
                   {!isCollapsed && <span>Chat</span>}
                 </NavLink>
-              </li>
+              </li> */}
 
               {/* Pricing & Plans */}
               <li>
@@ -183,7 +183,7 @@ const BizpoleOneDashboardLayout = () => {
               </li>
 
               {/* Customer supports */}
-              <li>
+              {/* <li>
                 <NavLink
                   to="/dashboard/bizpoleone/support"
                   className={({ isActive }) =>
@@ -197,7 +197,7 @@ const BizpoleOneDashboardLayout = () => {
                   <Settings size={20} />
                   {!isCollapsed && <span>Customer supports</span>}
                 </NavLink>
-              </li>
+              </li> */}
             </ul>
           </nav>
         </div>

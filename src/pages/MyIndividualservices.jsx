@@ -50,28 +50,21 @@ const MyIndividualservices = () => {
         const res = await getOrdersByCompanyId({ companyId, page, limit: PAGE_SIZE, IsIndividual: 1 });
         if (res && res.message) setApiMessage(res.message);
         const data = res.data || res.orders || res;
-        // Flatten all ServiceDetails with ItemName for all orders
-        let services = [];
+        // Group all ServiceDetails under their order as a single row
+        let groupedOrders = [];
         if (Array.isArray(data)) {
           data.forEach(order => {
             setInd(order.IsIndividual);
-            if (Array.isArray(order.ServiceDetails)) {
-              order.ServiceDetails.forEach(service => {
-                if (service.ItemName) {
-                  services.push({
-                    ...service,
-                    OrderID: order.OrderID,
-                    PackageName: order.PackageName,
-                    OrderStatus: order.OrderStatus,
-                    CreatedAt: order.CreatedAt,
-                    TotalAmount: order.totalAmount || order.TotalAmount || order.totalAmount,
-                  });
-                }
+            if (Array.isArray(order.ServiceDetails) && order.ServiceDetails.length > 0) {
+              groupedOrders.push({
+                ...order,
+                ServiceList: order.ServiceDetails,
+                TotalAmount: order.totalAmount || order.TotalAmount || order.totalAmount,
               });
             }
           });
         }
-        setIndividualServices(services);
+        setIndividualServices(groupedOrders);
         const total = res.total || res.count || (res.meta && res.meta.total) || (Array.isArray(res.data) ? res.total : 0);
         setTotalCount(total || 0);
         setTotalPages(total ? Math.ceil(total / PAGE_SIZE) : 1);
@@ -110,11 +103,22 @@ const MyIndividualservices = () => {
   };
 
   const navigate = useNavigate();
-  // Define columns for DataTable
+  // Define columns for DataTable (one row per order, services as a list)
   const columns = [
     { key: "OrderID", header: "Order ID" },
-    { key: "ItemName", header: "Service Name", render: (row) => row.ItemName || row.ServiceName || "Unnamed Service" },
-    { key: "Total", header: "Total Amount", render: (row) => `₹${row.Total || "N/A"}` },
+    { key: "ServiceList", header: "Services", render: (row) => (
+      <ul className="list-disc pl-4">
+        {Array.isArray(row.ServiceList) && row.ServiceList.length > 0
+          ? row.ServiceList.map((svc, idx) => (
+              <li key={svc.ServiceDetailID || svc.ServiceID || idx} className="mb-1">
+                {svc.ItemName || svc.ServiceName || `Service ${idx + 1}`} <span className="text-xs text-gray-500">₹{svc.Total || 'N/A'}</span>
+              </li>
+            ))
+          : <li className="text-gray-400">No services</li>
+        }
+      </ul>
+    ) },
+    { key: "TotalAmount", header: "Total Amount", render: (row) => `₹${row.TotalAmount || "N/A"}` },
     { key: "OrderStatus", header: "Status", render: (row) => {
       const label = getOrderStatusLabel(row.OrderStatus);
       let colorClass = "text-gray-700";

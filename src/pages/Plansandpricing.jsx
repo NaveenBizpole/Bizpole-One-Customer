@@ -35,13 +35,28 @@ const PlansAndPricing = () => {
   // 🔹 Handle package quote
   const handlePackageQuote = async (plan) => {
     try {
+      // Always send the package's services as ServiceDetails in the payload
+      const serviceDetailsArr = Array.isArray(plan.services)
+        ? plan.services.map((s) => ({
+            ServiceID: s.ServiceID,
+            ServiceName: s.ServiceName || s.name,
+            Price: s.Price || s.price || 0,
+            Description: s.Description || s.description || '',
+          }))
+        : [];
+
       const quoteData = {
         packageId: plan.id || plan.packageId || plan.PackageID,
         packageName: plan.name || plan.PackageName || plan.packageName,
         amount: plan.price || plan.YearlyMRP || plan.amount,
         type: "package",
+        ServiceDetails: serviceDetailsArr,
+        services: serviceDetailsArr, // For upsertQuote.js to map package services
       };
 
+      quoteData.is_manual = 0;
+      // Debug: log the payload to verify ServiceDetails
+      console.log('Submitting package quote:', quoteData);
       const data = await upsertQuote(quoteData);
       if (data && data.QuoteID) {
         const user = getSecureItem("user");
@@ -92,6 +107,7 @@ const PlansAndPricing = () => {
         type: "individual",
       };
 
+      quoteData.is_manual = 0;
       const data = await upsertQuote(quoteData);
       if (data && data.QuoteID) {
         const user = getSecureItem("user");
@@ -131,7 +147,7 @@ const PlansAndPricing = () => {
       try {
         // Get serviceTypeId from localStorage or use default
         const loc = getSecureItem("location");
-        let serviceTypeId = loc?.serviceTypeId || loc?.type || 4;
+        let serviceTypeId = loc?.serviceTypeId || loc?.type || 29;
         
         console.log('Fetching data for serviceTypeId:', serviceTypeId);
         

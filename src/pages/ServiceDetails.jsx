@@ -155,11 +155,27 @@ const ServiceDetails = () => {
   const isSelected = !!cart[service?.ServiceID];
   
   const handleAddToSelection = () => {
-    if (!service?.ServiceID || !price) return;
+    if (!service?.ServiceID) return;
+    // If price is not available, use a default object
+    const priceObj = price || {
+      ProfessionalFee: 0,
+      VendorFee: 0,
+      GovtFee: 0,
+      ContractorFee: 0,
+      GSTPercent: 0,
+      GstAmount: 0,
+      CGST: 0,
+      SGST: 0,
+      IGST: 0,
+      Discount: 0,
+      Rounding: 0,
+      TotalFee: 0,
+      AdvanceAmount: 0
+    };
     if (isSelected) {
       removeFromCart(service.ServiceID);
     } else {
-      addToCart(service.ServiceID, { ...price, ServiceName: service?.Name || service?.ServiceName });
+      addToCart(service.ServiceID, { ...priceObj, ServiceName: service?.Name || service?.ServiceName });
     }
   };
 
@@ -239,10 +255,11 @@ const ServiceDetails = () => {
             Email: user?.Email || ""
           }
         ],
-        PaymentType: 1,
+        PaymentType: 0,
         EmployeeID: employeeId
       };
 
+      payload.is_manual = 0;
       await upsertQuote(payload);
       navigate("/dashboard/bizpoleone");
     } catch (err) {
@@ -442,8 +459,8 @@ const ServiceDetails = () => {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={handleRequestQuote}
-                        disabled={quoteLoading || !service?.ServiceID || !price}
-                        className={`w-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-semibold py-2.5 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm group ${!price || quoteLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        disabled={quoteLoading || !service?.ServiceID}
+                        className={`w-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-semibold py-2.5 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm group ${quoteLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
                       >
                         {quoteLoading ? (
                           <>

@@ -145,6 +145,13 @@ const DashboardLayout = () => {
     window.open('/startbusiness/choose', '_blank');
   };
 
+     const encrypt = (id) => {
+            const secret =
+                import.meta.env.VITE_QUOTE_LINK_SECRET ||
+                "q3!9fKs7@pLzXr84$nmYtB!cVZdQ3";
+            return CryptoJS.AES.encrypt(String(id), secret).toString();
+        };
+
   // View quote details
   const handleViewQuote = (quote) => {
     // Open quote in new tab or show details
@@ -152,7 +159,8 @@ const DashboardLayout = () => {
       // Fix: Check if CryptoJS is available before using it
       if (typeof CryptoJS !== 'undefined') {
         const secret = "q3!9fKs7@pLzXr84$nmYtB!cVZdQ3";
-        const encrypted = CryptoJS.AES.encrypt(String(quote.QuoteID), secret).toString();
+        // const encrypted = CryptoJS.AES.encrypt(String(quote.QuoteID), secret).toString();
+          const encrypted = encodeURIComponent(encrypt(quote.QuoteID));
         const url = `https://dev.bizpoleindia.in/quotes/saved-preview/${encodeURIComponent(encrypted)}`;
         window.open(url, "_blank");
       } else {

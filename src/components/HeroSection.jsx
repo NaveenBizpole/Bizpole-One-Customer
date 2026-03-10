@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import AOS from "aos";
 import "aos/dist/aos.css";
@@ -10,6 +11,7 @@ import { Suspense, lazy } from "react";
 const PaymentLogs = lazy(() => import("./PaymentLogs"));
 
 const HeroSection = () => {
+  const navigate = useNavigate();
   // Animated words for heading
   const words = [
     { text: "Run", color: "text-red-400" },
@@ -85,6 +87,7 @@ const HeroSection = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="bg-yellow-400 text-black text-xl  px-6 py-3 rounded-full flex items-center gap-2 shadow-md hover:bg-yellow-500 transition w-full sm:w-auto justify-center"
+            onClick={() => navigate("/startbusiness/choose")}
           >
             Get Started  <span className="font-bold">Your Business</span>
             <FaArrowRight />
@@ -95,6 +98,7 @@ const HeroSection = () => {
             initial="initial"
             whileHover="hovered"
             className="flex items-center gap-3 text-black font-medium border-b-2 border-yellow-400 hover:border-b-0 transition cursor-pointer py-2 sm:py-0 justify-center sm:justify-start text-xl"
+            onClick={() => navigate("/existing-companies")}
           >
             {/* Expanding circle effect */}
             <motion.span
