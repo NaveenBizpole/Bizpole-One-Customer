@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CryptoJS from 'crypto-js';
 import { getInvoiceDetails } from '../api/Companyinvoice';
+import { initPayment } from '../api/Orders/Order';
+import { getSecureItem } from '../utils/secureStorage';
 import { motion } from 'framer-motion';
 import {
   Download,
@@ -170,14 +172,48 @@ const MyOrderDetails = () => {
   const totalAdvanceAmount = order.ReceivedAmount != null ? Number(order.ReceivedAmount) : itemsAdvanceAmount;
   const totalPendingAmount = order.PendingAmount != null ? Number(order.PendingAmount) : itemsPendingAmount;
 
-  // Opens the same quote saved-preview/approval page used elsewhere (QuotesList.jsx,
-  // ComplianceDashboard.jsx) so the customer can pay the balance from the quote itself.
-  const handlePayBalance = (orderObj) => {
-    if (!orderObj.QuoteID) return;
-    const secret = import.meta.env.VITE_QUOTE_LINK_SECRET || 'q3!9fKs7@pLzXr84$nmYtB!cVZdQ3';
-    const encrypted = CryptoJS.AES.encrypt(String(orderObj.QuoteID), secret).toString();
-    const url = `${import.meta.env.VITE_CLIENT_BASE_URL}/quotes/saved-preview/${encodeURIComponent(encrypted)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+  // Same generate-and-open mechanism as the "Create Payment Link" action in the
+  // Client app's Orders > Receipts tab: call initiatePayment directly with the
+  // real pending amount, then open the returned payment link straight away.
+  const handlePayBalance = async (orderObj, pendingAmount) => {
+    try {
+      // The order object doesn't carry customer contact fields — the payer here is
+      // always the logged-in customer, so fall back to their own profile in storage.
+      const loggedInUser = getSecureItem('user') || {};
+      const serviceDetails = Array.isArray(orderObj.ServiceDetails) ? orderObj.ServiceDetails : [];
+      const servicePayment = serviceDetails.map((service) => ({
+        serviceId: service.ServiceID || service.serviceId,
+        vendorFee: Number(service.VendorFee || 0),
+        professionalFee: Number(service.ProfessionalFee || service.ProfFee || 0),
+        contractorFee: Number(service.ContractorFee || 0),
+        govFee: Number(service.GovtFee || 0),
+        gst: Number(service.GstAmount || service.GST || 0),
+        pendingAmount: Number(service.PendingAmount || 0),
+      }));
+      const payload = {
+        QuoteID: Number(orderObj.QuoteID || 0),
+        totalAmount: Number(Number(pendingAmount).toFixed(2)),
+        govFee: Number(orderObj.GovtFee || 0),
+        vendorFee: Number(orderObj.VendorFee || 0),
+        contractorFee: Number(orderObj.ContractorFee || 0),
+        profFee: Number(orderObj.ProfessionalFee || 0),
+        txnid: `PL_${Date.now()}`,
+        status: 'success',
+        customer: {
+          name: orderObj.CustomerName || loggedInUser.FirstName || 'Customer',
+          email: orderObj.CustomerEmail || orderObj.Email || loggedInUser.Email || '',
+          phone: orderObj.CustomerPhone || orderObj.Phone || loggedInUser.Mobile || '',
+        },
+        servicePayment,
+        StateID: Number(orderObj.CompanyStateID || orderObj.StateID || 0),
+      };
+      const response = await initPayment(payload);
+      if (response.success && response.paymentUrl) {
+        window.open(response.paymentUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch (error) {
+      console.error('Pay balance error:', error);
+    }
   };
 
   // Orders.TotalAmount is the source of truth; summing per-service `Total` is a
@@ -420,7 +456,7 @@ const MyOrderDetails = () => {
                 </button>
                 {hasPendingAmount && (
                   <button
-                    onClick={() => handlePayBalance(order)}
+                    onClick={() => handlePayBalance(order, totalPendingAmount)}
                     className="flex items-center justify-center gap-2 border border-gray-200 bg-white text-gray-700 px-6 py-2.5 rounded-full text-sm font-medium hover:bg-gray-50 transition-colors"
                   >
                     <CreditCard className="w-4 h-4" />
@@ -687,7 +723,7 @@ const MyOrderDetails = () => {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 px-6 py-2.5 rounded-full text-sm font-medium hover:bg-gray-50 transition-colors"
-                    onClick={() => handlePayBalance(order)}
+                    onClick={() => handlePayBalance(order, totalPendingAmount)}
                   >
                     <CreditCard className="w-4 h-4" />
                     Pay Balance
