@@ -5,6 +5,7 @@ import {
   getServiceDeliverablesByServiceDetailId,
   getTasks,
   getResponseFieldsBySerId,
+  getServiceTasks,
 } from "../api/TaskApi";
 import { serviceFormMapping } from "../api/Services/ServiceDetails";
 import { useLocation } from "react-router-dom";
@@ -129,7 +130,7 @@ export default function ServiceSelection() {
   const [documentsError, setDocumentsError] = useState(null);
   const [verifiedFields, setVerifiedFields] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("Task");
+  const [activeTab, setActiveTab] = useState("Todo Task");
   const [statusFilter, setStatusFilter] = useState("All");
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const [collectDataTask, setCollectDataTask] = useState(null);
@@ -141,6 +142,9 @@ export default function ServiceSelection() {
   const [loadingDeliverables, setLoadingDeliverables] = useState(false);
   const [deliverablesError, setDeliverablesError] = useState(null);
   const [approvalStatus, setApprovalStatus] = useState(null);
+  const [externalTasks, setExternalTasks] = useState([]);
+  const [loadingExternalTasks, setLoadingExternalTasks] = useState(false);
+  const [externalTasksError, setExternalTasksError] = useState(null);
 
 
   const [companyId, setCompanyId] = useState(() => getSecureItem("selectedCompany")?.CompanyID || null);
@@ -229,7 +233,7 @@ export default function ServiceSelection() {
   useEffect(() => {
     const serviceCompanyId = selectedService?.CompanyID || selectedService?.companyId || companyId;
 
-    if (activeTab === "Task" && serviceCompanyId && selectedService?.ServiceDetailID) {
+    if (activeTab === "Todo Task" && serviceCompanyId && selectedService?.ServiceDetailID) {
       const fetchTasksAndApproval = async () => {
         setLoadingTasks(true);
         setTasksError(null);
@@ -270,11 +274,41 @@ export default function ServiceSelection() {
         }
       };
       fetchTasksAndApproval();
-    } else if (activeTab === "Task") {
+    } else if (activeTab === "Todo Task") {
       setTasksFromApi([]);
       setApprovalStatus(null);
     }
   }, [activeTab, selectedService, companyId, navQuoteId]);
+
+  // Fetch external (customer-visible) service tasks for the "Internal Task" tab —
+  // i.e. updates on what the internal team is working on. These come from the same
+  // tasks/servicetaskassignments pipeline used by the internal Client app's Task
+  // Progress tab (ApprovalType is derived server-side from tasks.IsInternal) —
+  // only rows marked 'External' are shown here.
+  useEffect(() => {
+    if (activeTab === "Internal Task" && selectedService?.ServiceDetailID) {
+      setLoadingExternalTasks(true);
+      setExternalTasksError(null);
+      getServiceTasks({ serviceDetailsId: selectedService.ServiceDetailID })
+        .then((data) => {
+          const list = Array.isArray(data) ? data : [];
+          setExternalTasks(list.filter((t) => t.ApprovalType === "External"));
+        })
+        .catch((err) => {
+          // The API returns a 404 when a service simply has no tasks yet — that's
+          // an empty state, not a failure.
+          if (err?.response?.status === 404) {
+            setExternalTasks([]);
+          } else {
+            setExternalTasksError("Failed to fetch task progress.");
+          }
+        })
+        .finally(() => setLoadingExternalTasks(false));
+    } else if (activeTab === "Internal Task") {
+      setExternalTasks([]);
+      setExternalTasksError(null);
+    }
+  }, [activeTab, selectedService]);
 
   // Fetch documents/response fields
   useEffect(() => {
@@ -320,7 +354,7 @@ export default function ServiceSelection() {
             verified = latestFields.filter(
               (f) => f.verify === 1 || f.verify === 0
             );
-          } else if (activeTab === "Task") {
+          } else if (activeTab === "Todo Task") {
             verified = latestFields.filter((f) => f.verify === 1);
           } else {
             verified = latestFields.filter((f) => f.verify === 0);
@@ -418,6 +452,20 @@ export default function ServiceSelection() {
       case "Not Approved":
         return "bg-red-50 text-red-500";
       case "Not Uploaded":
+        return "bg-gray-100 text-gray-600";
+      default:
+        return "bg-gray-50 text-gray-500";
+    }
+  };
+
+  const getExternalTaskStatusStyles = (status) => {
+    switch (String(status || "").toLowerCase()) {
+      case "completed":
+        return "bg-green-50 text-green-600";
+      case "in progress":
+      case "active":
+        return "bg-orange-50 text-orange-500";
+      case "not started":
         return "bg-gray-100 text-gray-600";
       default:
         return "bg-gray-50 text-gray-500";
@@ -1120,7 +1168,7 @@ const displayedUpcomingTasks =
       <div className=" mt-8 mb-6 border border-gray-200 rounded-xl">
         <div className="flex items-center justify-between p-2">
           <div className="flex space-x-8">
-            {["Task", "Documents", "Deliverables"].map((tab) => (
+            {["Todo Task", "Documents", "Deliverables", "Internal Task"].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -1148,7 +1196,7 @@ const displayedUpcomingTasks =
             )}
           </div>
 
-          {activeTab === "Task" && !collectDataTask && !noteTask && (
+          {activeTab === "Todo Task" && !collectDataTask && !noteTask && (
             <div className="relative">
               <button
                 onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
@@ -1188,7 +1236,7 @@ const displayedUpcomingTasks =
         <div className="bg-white rounded-lg border border-gray-200 p-10 mb-8 text-center text-gray-500 text-sm">
           No task
         </div>
-      ) : activeTab === "Task" ? (
+      ) : activeTab === "Todo Task" ? (
         <div className="mb-10">
           {/* Current Task */}
           <div className="mb-10">
@@ -1362,6 +1410,33 @@ const displayedUpcomingTasks =
             <p className="text-gray-600">No deliverables available yet.</p>
           )}
 
+        </div>
+      ) : activeTab === "Internal Task" ? (
+        <div className="bg-white rounded-lg p-8 mb-8">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Internal Task</h3>
+          {loadingExternalTasks ? (
+            <p className="text-gray-600">Loading task progress...</p>
+          ) : externalTasksError ? (
+            <p className="text-red-500">{externalTasksError}</p>
+          ) : externalTasks.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {externalTasks.map((task) => (
+                <div
+                  key={task.TaskID}
+                  className="flex items-center justify-between border border-gray-200 rounded-full px-5 py-3"
+                >
+                  <span className="text-sm text-gray-700 truncate max-w-lg">{task.TaskName}</span>
+                  <span
+                    className={`ml-4 flex-shrink-0 text-xs font-medium px-3 py-1 rounded-full ${getExternalTaskStatusStyles(task.status)}`}
+                  >
+                    {task.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-gray-500">No Records Found</div>
+          )}
         </div>
       ) : null}
 
