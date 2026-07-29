@@ -3,6 +3,13 @@ import axiosInstance from "./axiosInstance";
 import { setSecureItem, getSecureItem } from "../utils/secureStorage";
 import { fetchFranchiseeGstInfo, calcGstAmount, splitGst } from "../utils/gstCalc";
 
+// Does this company have any Quote at all? Used to route a customer-portal
+// "Call back request" to a Lead (no quotes -> new user) vs. a Deal (existing client).
+export const checkCompanyHasQuote = async (companyId) => {
+  const res = await axiosInstance.get(`/quote/exists-by-company/${companyId}`);
+  return res.data;
+};
+
 // src/api/upsertQuote.js - Modified version to handle both package and individual quotes
 export const upsertQuote = async (plan) => {
   console.log("QUOTE DATA:", { plan });
