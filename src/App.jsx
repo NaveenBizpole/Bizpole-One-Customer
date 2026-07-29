@@ -183,6 +183,7 @@ function App() {
                   <Route path="pricing" element={<Plansandpricing />} />
                   <Route path="individual" element={<MyIndividualservices />} />
                   <Route path="chat" element={<ChatPage />} />
+                  <Route path="billing" element={<Invoiceprofile showRefundLink />} />
                   <Route path="refunds" element={<Refunds />} />
                   <Route path="support" element={<SupportTickets />} />
                 </Route>
@@ -214,8 +215,8 @@ function App() {
         </main>
 
         {!hideLayout && <Footer />}
-        {/* Global floating cart, always visible */}
-        <GlobalCart />
+        {/* Global floating cart — hidden on the Home page */}
+        {location.pathname !== "/" && <GlobalCart />}
       </div>
     </CartProvider>
   );

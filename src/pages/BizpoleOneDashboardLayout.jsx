@@ -9,7 +9,7 @@ import {
   ChevronDown,
   Box,
   Wrench,
-  RotateCcw,
+  Receipt,
   LifeBuoy,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -176,10 +176,10 @@ const BizpoleOneDashboardLayout = () => {
                 </NavLink>
               </li>
 
-              {/* Refunds */}
+              {/* Billing and Invoice */}
               <li>
                 <NavLink
-                  to="/dashboard/bizpoleone/refunds"
+                  to="/dashboard/bizpoleone/billing"
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-all ${isActive
                       ? "bg-[#FFC42A] text-white shadow-inner"
@@ -187,8 +187,8 @@ const BizpoleOneDashboardLayout = () => {
                     }`
                   }
                 >
-                  <RotateCcw size={20} />
-                  {!isCollapsed && <span>Refunds</span>}
+                  <Receipt size={20} />
+                  {!isCollapsed && <span>Billing and Invoice</span>}
                 </NavLink>
               </li>
 

@@ -10,13 +10,20 @@ import {
   FiDownload
 } from 'react-icons/fi';
 import { getCompanyInvoices, getCompanyOrders } from '../api/Companyinvoice';
+import { getCompanyIdFromStorage } from '../api/Orders/Order';
 import CryptoJS from "crypto-js";
 import { ProfileCompanyContext } from './ProfileLayout';
 import { useNavigate } from 'react-router-dom';
 
-const InvoiceProfile = () => {
+// showRefundLink: set true when this page is rendered outside the Profile section
+// (e.g. the dashboard's "Billing and Invoice" tab), where a subtle way to reach
+// Refunds is needed since Refunds no longer has its own sidebar entry there.
+const InvoiceProfile = ({ showRefundLink = false }) => {
   const navigate = useNavigate();
-  const { selectedCompanyId } = useContext(ProfileCompanyContext);
+  // Outside the Profile section there's no ProfileCompanyContext.Provider, so fall
+  // back to the same storage-derived company id the other dashboard pages use.
+  const { selectedCompanyId: contextCompanyId } = useContext(ProfileCompanyContext) || {};
+  const selectedCompanyId = contextCompanyId || getCompanyIdFromStorage();
   const [activeTab, setActiveTab] = useState('overview');
   const [expandedFaq, setExpandedFaq] = useState(null);
   const [invoices, setInvoices] = useState([]);
@@ -250,7 +257,17 @@ const InvoiceProfile = () => {
     <div>
       <div className="mx-auto px-6 py-10">
         {/* Heading */}
-        <h1 className="text-2xl font-semibold text-gray-900 mb-6">Invoice</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-semibold text-gray-900">Invoice</h1>
+          {showRefundLink && (
+            <button
+              onClick={() => navigate('/dashboard/bizpoleone/refunds')}
+              className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
+            >
+              Need a refund?
+            </button>
+          )}
+        </div>
 
         {/* Tabs */}
         <div className="flex items-center gap-6 border-b border-gray-200 mb-8">

@@ -27,10 +27,24 @@ export default function Navbar() {
     }
   }, [location.state]);
 
-  // Token check
+  // Token check — rechecked whenever a token is set/cleared, not just on mount,
+  // since Navbar lives outside <Routes> and SPA navigation won't remount it.
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    setHasToken(!!token);
+    const checkToken = () => {
+      setHasToken(!!localStorage.getItem("token"));
+    };
+
+    checkToken();
+
+    window.addEventListener("auth-token-set", checkToken);
+    window.addEventListener("auth-session-cleared", checkToken);
+    window.addEventListener("storage", checkToken);
+
+    return () => {
+      window.removeEventListener("auth-token-set", checkToken);
+      window.removeEventListener("auth-session-cleared", checkToken);
+      window.removeEventListener("storage", checkToken);
+    };
   }, []);
 
   // Referral tracking

@@ -15,12 +15,20 @@ const SESSION_KEYS = [
 
 export const clearSession = () => {
   SESSION_KEYS.forEach((key) => localStorage.removeItem(key));
+  notifySessionCleared();
 };
 
 // Call right after storing a fresh token so useAutoLogout re-arms its expiry timer
 // immediately, instead of waiting for the next full page load.
 export const notifyTokenSet = () => {
   window.dispatchEvent(new Event("auth-token-set"));
+};
+
+// Fired from clearSession() so components that already checked localStorage once on
+// mount (e.g. Navbar) can react immediately instead of showing stale logged-in UI
+// until the next hard refresh.
+export const notifySessionCleared = () => {
+  window.dispatchEvent(new Event("auth-session-cleared"));
 };
 
 export const getActiveToken = () =>
