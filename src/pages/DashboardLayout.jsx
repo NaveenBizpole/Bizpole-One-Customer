@@ -111,6 +111,27 @@ const DashboardLayout = () => {
     }
   };
 
+  // Re-read quotes from localStorage whenever a quote is created/updated
+  // elsewhere (upsertQuote patches localStorage then fires this event) —
+  // the mount-only effect above won't otherwise pick up the change since
+  // this layout stays mounted across client-side nav within /dashboard/*.
+  useEffect(() => {
+    const handleQuotesUpdated = () => {
+      try {
+        const rawUser = getSecureItem("user");
+        const user = typeof rawUser === "string" ? JSON.parse(rawUser) : rawUser;
+        const company = user?.Companies?.find(
+          (c) => String(c.CompanyID) === String(selectedCompanyId)
+        );
+        if (company) loadQuotesForCompany(company);
+      } catch (e) {
+        console.log("Failed to refresh quotes after update", e);
+      }
+    };
+    window.addEventListener("quotes-updated", handleQuotesUpdated);
+    return () => window.removeEventListener("quotes-updated", handleQuotesUpdated);
+  }, [selectedCompanyId]);
+
 
 
   const navigate = useNavigate();

@@ -6,7 +6,7 @@ import { getPackagesByServiceType, getAllServiceTypes } from "../api/ServiceType
 import { upsertQuote } from "../api/Quote";
 import { motion, AnimatePresence } from "framer-motion";
 // import { Check, Calendar, Sparkles, ArrowRight } from "lucide-react";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { setSecureItem, getSecureItem } from "../utils/secureStorage";
 
 const PlansAndPricing = () => {
@@ -20,8 +20,10 @@ const PlansAndPricing = () => {
   const [error, setError] = useState(null);
   const [businessTypes, setBusinessTypes] = useState([]);
   const [selectedTypeId, setSelectedTypeId] = useState(null);
-  // Add this state near your other useState calls
-  const [selectedPackageId, setSelectedPackageId] = useState(null);
+  // Packages the user has multi-selected (packageId -> full plan object), for bundled "Request Quote"
+  const [selectedPackages, setSelectedPackages] = useState({});
+  const [packageCartOpen, setPackageCartOpen] = useState(false);
+  const [requestingPackages, setRequestingPackages] = useState(false);
   const [selectedServicesMap, setSelectedServicesMap] = useState({});
 
   // 🔹 Load service type from local storage
@@ -35,40 +37,74 @@ const PlansAndPricing = () => {
     }
   }, []);
 
-  // 🔹 Handle package quote
-  const handlePackageQuote = async (plan) => {
-    try {
-      const quoteData = {
-        packageId: plan.id || plan.packageId || plan.PackageID,
-        packageName: plan.name || plan.PackageName || plan.packageName,
-        amount: plan.price || plan.YearlyMRP || plan.amount,
-        type: "package",
-        // Pass the package's services through as-is (with their real
-        // ProfessionalFeeYearly/VendorFeeYearly/GovernmentFeeYearly columns) so
-        // upsertQuote.js can compute real fees/GST instead of falling back to
-        // hardcoded placeholders.
-        services: Array.isArray(plan.services) ? plan.services : [],
-      };
+  // 🔹 Submit a single package as a quote (the backend stores one PackageID per quote row,
+  // so bundling N selected packages means N separate upsertQuote calls, not one combined quote).
+  const submitPackageQuote = (plan) => {
+    const quoteData = {
+      packageId: plan.id || plan.packageId || plan.PackageID,
+      packageName: plan.name || plan.PackageName || plan.packageName,
+      amount: plan.price || plan.YearlyMRP || plan.amount,
+      type: "package",
+      // Pass the package's services through as-is (with their real
+      // ProfessionalFeeYearly/VendorFeeYearly/GovernmentFeeYearly columns) so
+      // upsertQuote.js can compute real fees/GST instead of falling back to
+      // hardcoded placeholders.
+      services: Array.isArray(plan.services) ? plan.services : [],
+      is_manual: 0,
+    };
+    return upsertQuote(quoteData);
+  };
 
-      quoteData.is_manual = 0;
-      // Debug: log the payload to verify ServiceDetails
-      console.log('Submitting package quote:', quoteData);
-      const data = await upsertQuote(quoteData);
-      if (data && data.QuoteID) {
-        const user = getSecureItem("user");
-        if (user) {
-          user.QuoteID = data.QuoteID;
-          setSecureItem("user", user);
+  // 🔹 Toggle a package in/out of the multi-select cart
+  const togglePackageSelect = (plan, packageId) => {
+    setSelectedPackages((prev) => {
+      const next = { ...prev };
+      if (next[packageId]) {
+        delete next[packageId];
+      } else {
+        next[packageId] = plan;
+      }
+      return next;
+    });
+  };
+
+  const removeSelectedPackage = (packageId) => {
+    setSelectedPackages((prev) => {
+      const next = { ...prev };
+      delete next[packageId];
+      return next;
+    });
+  };
+
+  // 🔹 Request quotes for every selected package at once
+  const handleRequestSelectedPackages = async () => {
+    const plans = Object.values(selectedPackages);
+    if (plans.length === 0) return;
+
+    setRequestingPackages(true);
+    try {
+      for (const plan of plans) {
+        const data = await submitPackageQuote(plan);
+        if (data?.QuoteID) {
+          const user = getSecureItem("user");
+          if (user) {
+            user.QuoteID = data.QuoteID;
+            setSecureItem("user", user);
+          }
         }
       }
 
       toast.dismiss();
-      toast.success(`Package quote created! QuoteCode: ${data.QuoteCode}`);
+      toast.success(`${plans.length} package quote${plans.length > 1 ? "s" : ""} created successfully!`);
+      setSelectedPackages({});
+      setPackageCartOpen(false);
       navigate("/dashboard/bizpoleone");
     } catch (err) {
-      console.error("Error creating package quote:", err);
+      console.error("Error creating package quotes:", err);
       toast.dismiss();
-      toast.error("Failed to create package quote.");
+      toast.error("Failed to create one or more package quotes. Please try again.");
+    } finally {
+      setRequestingPackages(false);
     }
   };
 
@@ -245,7 +281,7 @@ const PlansAndPricing = () => {
     const billingPeriod = plan.BillingPeriod || "Annual";
     const audience = plan.TargetAudience || plan.audience || null;
 
-    const isSelected = selectedPackageId === packageId;
+    const isSelected = !!selectedPackages[packageId];
 
     return (
       <motion.div
@@ -254,7 +290,7 @@ const PlansAndPricing = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: index * 0.08 }}
         whileHover={{ scale: 1.02, y: -4 }}
-        onClick={() => setSelectedPackageId(packageId)}
+        onClick={() => togglePackageSelect(plan, packageId)}
         className={`relative rounded-2xl p-6 border cursor-pointer flex flex-col h-full min-h-[300px] transition-all duration-200 bg-white text-gray-900 shadow-sm hover:shadow-md  ${isSelected
             ? "border-[#F3C625] border-2 shadow-md"
             : "border-gray-200 hover:border-[#F3C625]/60"
@@ -318,11 +354,15 @@ const PlansAndPricing = () => {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            handlePackageQuote(plan);
+            togglePackageSelect(plan, packageId);
           }}
-          className="w-full mt-auto py-2.5 rounded-full text-sm font-semibold bg-[#F3C625] hover:bg-[#d4ab1f] text-black transition-colors"
+          className={`w-full mt-auto py-2.5 rounded-full text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${isSelected
+            ? "bg-gray-900 text-white hover:bg-gray-800"
+            : "bg-[#F3C625] hover:bg-[#d4ab1f] text-black"
+            }`}
         >
-          Get Quote
+          {isSelected && <Check size={14} strokeWidth={3} />}
+          {isSelected ? "Selected" : "Select Package"}
         </button>
       </motion.div>
     );
@@ -420,6 +460,69 @@ const PlansAndPricing = () => {
           </AnimatePresence>
         )}
       </div>
+
+      {/* Floating multi-select cart for packages — mirrors the individual-services selection UX */}
+      {Object.keys(selectedPackages).length > 0 && (
+        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 1000 }}>
+          <button
+            onClick={() => setPackageCartOpen((o) => !o)}
+            className="bg-[#F3C625] hover:bg-[#d4ab1f] py-2 px-4 text-black rounded-full flex items-center justify-center shadow-lg text-sm relative"
+          >
+            <span className="font-normal">Selected Packages   </span>
+            <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5 min-w-[24px] text-center">
+              {Object.keys(selectedPackages).length}
+            </span>
+          </button>
+
+          {packageCartOpen && (
+            <div className="bg-white rounded-2xl shadow-2xl p-5 mt-3 min-w-[320px] max-w-xs border border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-gray-900 text-lg">Selected Packages</h3>
+                <button onClick={() => setPackageCartOpen(false)} className="text-gray-400 hover:text-gray-700">
+                  <X size={16} />
+                </button>
+              </div>
+              <ul className="divide-y divide-gray-100 mb-3">
+                {Object.entries(selectedPackages).map(([id, plan]) => {
+                  const name = plan.PackageName || plan.name || plan.packageName || `Package #${id}`;
+                  const price = plan.YearlyFinalAmount || plan.YearlyMRP || plan.price || plan.amount || 0;
+                  return (
+                    <li key={id} className="py-2 flex items-center justify-between">
+                      <div>
+                        <div className="font-semibold text-gray-800 text-sm">{name}</div>
+                        <div className="text-xs text-gray-500">₹{price}</div>
+                      </div>
+                      <button onClick={() => removeSelectedPackage(id)} className="text-red-400 hover:text-red-600 ml-2">
+                        <X size={14} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="flex items-center justify-between border-t pt-3 mt-2">
+                <span className="font-semibold text-gray-700">Total</span>
+                <span className="font-bold text-green-700">
+                  ₹{Object.values(selectedPackages)
+                    .reduce((sum, plan) => sum + Number(plan.YearlyFinalAmount || plan.YearlyMRP || plan.price || plan.amount || 0), 0)
+                    .toLocaleString("en-IN")}
+                </span>
+              </div>
+              <button
+                disabled={requestingPackages}
+                onClick={handleRequestSelectedPackages}
+                className={`w-full mt-4 px-4 py-2 rounded-xl shadow-md font-semibold text-black transition-all duration-300 ${requestingPackages
+                  ? "bg-gray-200 cursor-not-allowed"
+                  : "bg-gradient-to-r from-yellow-400 to-yellow-500 hover:shadow-xl"
+                  }`}
+              >
+                {requestingPackages
+                  ? "Requesting..."
+                  : `Request Quote${Object.keys(selectedPackages).length > 1 ? "s" : ""}`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -215,8 +215,8 @@ function App() {
         </main>
 
         {!hideLayout && <Footer />}
-        {/* Global floating cart — hidden on the Home page */}
-        {location.pathname !== "/" && <GlobalCart />}
+        {/* Global floating cart — only on public marketing/service pages, not inside dashboard/profile/associate */}
+        {!hideLayout && location.pathname !== "/" && <GlobalCart />}
       </div>
     </CartProvider>
   );
