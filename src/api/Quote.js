@@ -216,6 +216,10 @@ export const upsertQuote = async (plan) => {
           );
 
           setSecureItem("user", JSON.stringify(storedUser));
+          // DashboardLayout loads its `quotes` state once on mount and never
+          // remounts on client-side nav, so it won't see this localStorage
+          // update on its own — tell it to re-read.
+          window.dispatchEvent(new Event("quotes-updated"));
         }
       } catch (e) {
         console.log("Failed updating quotes in storage", e);
