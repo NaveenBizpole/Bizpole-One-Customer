@@ -1,7 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { upsertRegistrationStatus } from "../../api/CompanyApi";
+import { getAllStates } from "../../api/States";
 import { useNavigate } from "react-router-dom";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
+
+// Business type constants
+const BUSINESS_TYPES = {
+  PRIVATE_LIMITED: "private limited",
+  LLP: "llp",
+  OPC: "opc",
+  PARTNERSHIP: "partnership",
+  PROPRIETORSHIP: "sole proprietorship"
+};
 
 const ComplianceStatusCheck = ({ onBack, registrationDetails }) => {
   const navigate = useNavigate();
@@ -11,6 +21,37 @@ const ComplianceStatusCheck = ({ onBack, registrationDetails }) => {
 
   // Controlled state for this step's fields
   const [form, setForm] = useState({
+    // Basic company information
+    entityType: "",
+    pan: "",
+    tan: "",
+    cin: "",
+    llpin: "",
+    din: "",
+    // Tax registration details
+    gstEnabled: "",
+    gstNumber: "",
+    gstDate: "",
+    gstType: "Regular",
+    iec: "",
+    udyam: "",
+    stateId: "",
+    // FSSAI details
+    fssaiNumber: "",
+    fssaiDate: "",
+    fssaiType: "",
+    // Labour compliance details
+    esiNumber: "",
+    esiDate: "",
+    pfNumber: "",
+    pfDate: "",
+    professionalTaxEnabled: "",
+    ptNumber: "",
+    ptDate: "",
+    // Business details
+    turnover: "",
+    employees: "",
+    // Filing & return status
     businessUnderstanding: "",
     expectations: "",
     gstReturnsUpToDate: "",
@@ -21,9 +62,59 @@ const ComplianceStatusCheck = ({ onBack, registrationDetails }) => {
     hasAuditor: "",
   });
 
+  const [states, setStates] = useState([]);
   const [activeField, setActiveField] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Whether the corresponding registration exists, answered back in Step 3 (Registration Status)
+  const has = registrationDetails || {};
+
+  // Prefill from localStorage company info where available
+  useEffect(() => {
+    try {
+      const companyInfoRaw = window.localStorage.getItem("companyInfo");
+      if (companyInfoRaw) {
+        const companyInfo = JSON.parse(companyInfoRaw);
+        setForm((prev) => ({
+          ...prev,
+          entityType: prev.entityType || companyInfo.ConstitutionCategory || "",
+          pan: prev.pan || companyInfo.CompanyPAN || "",
+          cin: prev.cin || companyInfo.CIN || "",
+          llpin: prev.llpin || (companyInfo.CIN && companyInfo.ConstitutionCategory === BUSINESS_TYPES.LLP ? companyInfo.CIN : ""),
+          gstEnabled: prev.gstEnabled || (companyInfo.GSTNumber ? "yes" : ""),
+          gstNumber: prev.gstNumber || companyInfo.GSTNumber || "",
+          stateId: prev.stateId || companyInfo.State || "",
+          turnover: prev.turnover || companyInfo.Turnover || "",
+        }));
+      }
+    } catch (err) {
+      console.error("Error pre-filling form from localStorage:", err);
+    }
+  }, []);
+
+  // Load states on mount
+  useEffect(() => {
+    const fetchStates = async () => {
+      try {
+        const data = await getAllStates();
+        setStates(data || []);
+      } catch (err) {
+        console.error("Error fetching states:", err);
+        setStates([]);
+      }
+    };
+    fetchStates();
+  }, []);
+
+  const entityTypes = [
+    { label: "Select Entity", value: "" },
+    { label: BUSINESS_TYPES.PRIVATE_LIMITED, value: BUSINESS_TYPES.PRIVATE_LIMITED },
+    { label: BUSINESS_TYPES.LLP, value: BUSINESS_TYPES.LLP },
+    { label: BUSINESS_TYPES.OPC, value: BUSINESS_TYPES.OPC },
+    { label: BUSINESS_TYPES.PARTNERSHIP, value: BUSINESS_TYPES.PARTNERSHIP },
+    { label: BUSINESS_TYPES.PROPRIETORSHIP, value: BUSINESS_TYPES.PROPRIETORSHIP },
+  ];
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -65,12 +156,23 @@ const ComplianceStatusCheck = ({ onBack, registrationDetails }) => {
     try {
       const complianceData = {
         ...form,
+        gstNumber: form.gstEnabled === "yes" ? form.gstNumber : "",
+        gstDate: form.gstEnabled === "yes" ? form.gstDate : "",
+        iec: has.iecEnabled === "yes" ? form.iec : "",
+        fssaiNumber: has.fssaiEnabled === "yes" ? form.fssaiNumber : "",
+        fssaiDate: has.fssaiEnabled === "yes" ? form.fssaiDate : "",
+        esiNumber: has.esiEnabled === "yes" ? form.esiNumber : "",
+        esiDate: has.esiEnabled === "yes" ? form.esiDate : "",
+        pfNumber: has.pfEnabled === "yes" ? form.pfNumber : "",
+        pfDate: has.pfEnabled === "yes" ? form.pfDate : "",
+        ptNumber: form.professionalTaxEnabled === "yes" ? form.ptNumber : "",
+        ptDate: form.professionalTaxEnabled === "yes" ? form.ptDate : "",
         gstReturnsDetails: form.gstReturnsUpToDate === "yes" ? form.gstReturnsDetails : "",
       };
 
       // Merge Step 3's registration details with this step's compliance data
       const mergedStatus = {
-        ...(registrationDetails || {}),
+        ...has,
         ...complianceData
       };
 
@@ -159,6 +261,382 @@ const ComplianceStatusCheck = ({ onBack, registrationDetails }) => {
 
           {/* Main Form */}
           <div className="space-y-6" style={{ maxHeight: "calc(100vh - 250px)", overflowY: "auto", paddingRight: "8px" }}>
+            {/* ================= BASIC COMPANY INFO ================= */}
+            <div className="bg-white rounded-xl shadow-sm p-5">
+              <h4 className="font-semibold text-base mb-4 border-b border-gray-100 pb-2 text-gray-700">
+                Basic Company Information
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">Entity Type</label>
+                  <select
+                    name="entityType"
+                    value={form.entityType}
+                    onChange={handleChange}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  >
+                    {entityTypes.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">PAN Number</label>
+                  <input
+                    type="text"
+                    name="pan"
+                    value={form.pan}
+                    onChange={handleChange}
+                    placeholder="e.g. ABCDE1234F"
+                    maxLength="10"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">TAN Number</label>
+                  <input
+                    type="text"
+                    name="tan"
+                    value={form.tan}
+                    onChange={handleChange}
+                    placeholder="e.g. ABC12345D"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  />
+                </div>
+
+                {(form.entityType === BUSINESS_TYPES.PRIVATE_LIMITED || form.entityType === BUSINESS_TYPES.OPC) && (
+                  <div>
+                    <label className="block mb-1 text-xs font-medium text-gray-600">CIN Number</label>
+                    <input
+                      type="text"
+                      name="cin"
+                      value={form.cin}
+                      onChange={handleChange}
+                      placeholder="e.g. U72900MH2023PTC123456"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                    />
+                  </div>
+                )}
+
+                {form.entityType === BUSINESS_TYPES.LLP && (
+                  <div>
+                    <label className="block mb-1 text-xs font-medium text-gray-600">LLPIN Number</label>
+                    <input
+                      type="text"
+                      name="llpin"
+                      value={form.llpin}
+                      onChange={handleChange}
+                      placeholder="e.g. LLP12345"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">DIN Number</label>
+                  <input
+                    type="text"
+                    name="din"
+                    value={form.din}
+                    onChange={handleChange}
+                    placeholder="e.g. 12345678"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ================= TAX REGISTRATION ================= */}
+            <div className="bg-white rounded-xl shadow-sm p-5">
+              <h4 className="font-semibold text-base mb-4 border-b border-gray-100 pb-2 text-gray-700">
+                Tax Registration Details
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">GST Registered?</label>
+                  <select
+                    name="gstEnabled"
+                    value={form.gstEnabled}
+                    onChange={handleChange}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  >
+                    <option value="">Select Option</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+
+                {form.gstEnabled === "yes" && (
+                  <>
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">GST Number</label>
+                      <input
+                        type="text"
+                        name="gstNumber"
+                        value={form.gstNumber}
+                        onChange={handleChange}
+                        placeholder="e.g. 07AABCU9603R1ZM"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">GST Registration Date</label>
+                      <input
+                        type="date"
+                        name="gstDate"
+                        value={form.gstDate}
+                        onChange={handleChange}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">GST Registration Type</label>
+                      <select
+                        name="gstType"
+                        value={form.gstType}
+                        onChange={handleChange}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      >
+                        <option value="Regular">Regular</option>
+                        <option value="Composition">Composition</option>
+                        <option value="Regular + SEZ">Regular + SEZ</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {has.iecEnabled === "yes" && (
+                  <div>
+                    <label className="block mb-1 text-xs font-medium text-gray-600">Import Export Code (IEC)</label>
+                    <input
+                      type="text"
+                      name="iec"
+                      value={form.iec}
+                      onChange={handleChange}
+                      placeholder="e.g. IEC123456789"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">Udyam Registration Number</label>
+                  <input
+                    type="text"
+                    name="udyam"
+                    value={form.udyam}
+                    onChange={handleChange}
+                    placeholder="e.g. UDYAM-XX-00-0000000"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">State</label>
+                  <select
+                    name="stateId"
+                    value={form.stateId}
+                    onChange={handleChange}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  >
+                    <option value="">Select State</option>
+                    {states.map((state) => (
+                      <option key={state._id || state.id || state.state_name} value={state.state_name}>
+                        {state.state_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* ================= FSSAI ================= */}
+            {has.fssaiEnabled === "yes" && (
+              <div className="bg-white rounded-xl shadow-sm p-5">
+                <h4 className="font-semibold text-base mb-4 border-b border-gray-100 pb-2 text-gray-700">
+                  Food & Safety Compliance (FSSAI)
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block mb-1 text-xs font-medium text-gray-600">FSSAI Number</label>
+                    <input
+                      type="text"
+                      name="fssaiNumber"
+                      value={form.fssaiNumber}
+                      onChange={handleChange}
+                      placeholder="e.g. 12345678901234"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-xs font-medium text-gray-600">FSSAI Registration Date</label>
+                    <input
+                      type="date"
+                      name="fssaiDate"
+                      value={form.fssaiDate}
+                      onChange={handleChange}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-xs font-medium text-gray-600">FSSAI Type</label>
+                    <select
+                      name="fssaiType"
+                      value={form.fssaiType}
+                      onChange={handleChange}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                    >
+                      <option value="">Select Type</option>
+                      <option value="basic">Basic</option>
+                      <option value="state">State</option>
+                      <option value="central">Central</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ================= LABOUR COMPLIANCE ================= */}
+            <div className="bg-white rounded-xl shadow-sm p-5">
+              <h4 className="font-semibold text-base mb-4 border-b border-gray-100 pb-2 text-gray-700">
+                Labour Compliance
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {has.esiEnabled === "yes" && (
+                  <>
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">ESI Registration Number</label>
+                      <input
+                        type="text"
+                        name="esiNumber"
+                        value={form.esiNumber}
+                        onChange={handleChange}
+                        placeholder="e.g. ESI12345678"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">ESI Registration Date</label>
+                      <input
+                        type="date"
+                        name="esiDate"
+                        value={form.esiDate}
+                        onChange={handleChange}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {has.pfEnabled === "yes" && (
+                  <>
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">EPF Registration Number</label>
+                      <input
+                        type="text"
+                        name="pfNumber"
+                        value={form.pfNumber}
+                        onChange={handleChange}
+                        placeholder="e.g. PF12345678"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">EPF Registration Date</label>
+                      <input
+                        type="date"
+                        name="pfDate"
+                        value={form.pfDate}
+                        onChange={handleChange}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">Professional Tax Registered?</label>
+                  <select
+                    name="professionalTaxEnabled"
+                    value={form.professionalTaxEnabled}
+                    onChange={handleChange}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  >
+                    <option value="">Select Option</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+
+                {form.professionalTaxEnabled === "yes" && (
+                  <>
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">PT Registration Number</label>
+                      <input
+                        type="text"
+                        name="ptNumber"
+                        value={form.ptNumber}
+                        onChange={handleChange}
+                        placeholder="e.g. PT12345678"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-xs font-medium text-gray-600">PT Registration Date</label>
+                      <input
+                        type="date"
+                        name="ptDate"
+                        value={form.ptDate}
+                        onChange={handleChange}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* ================= BUSINESS DETAILS ================= */}
+            <div className="bg-white rounded-xl shadow-sm p-5">
+              <h4 className="font-semibold text-base mb-4 border-b border-gray-100 pb-2 text-gray-700">
+                Business Details
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">Annual Turnover (₹)</label>
+                  <input
+                    type="number"
+                    name="turnover"
+                    value={form.turnover}
+                    onChange={handleChange}
+                    placeholder="e.g. 5000000"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-600">Number of Employees</label>
+                  <input
+                    type="number"
+                    name="employees"
+                    value={form.employees}
+                    onChange={handleChange}
+                    placeholder="e.g. 50"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400 hover:border-yellow-200 transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* ================= FILING & RETURN STATUS ================= */}
             <div className="bg-white rounded-xl shadow-sm p-5">
               <h4 className="font-semibold text-base mb-4 border-b border-gray-100 pb-2 text-gray-700">

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import SigninModal from "./Modals/SigninModal";
 import { ChevronRight } from "lucide-react";
+import { removeSecureItem } from "../utils/secureStorage";
 
 const StartYourBusinessContent = ({ onNext }) => {
   const navigate = useNavigate();
@@ -19,7 +20,10 @@ const StartYourBusinessContent = ({ onNext }) => {
       id: "existing",
       title: "Onboard Existing company",
       sub: "Own or belong to a company, this is for you",
-      onClick: () => navigate("/existing-companies"),
+      onClick: () => {
+        removeSecureItem("onboardingStep");
+        navigate("/existing-companies");
+      },
     },
   ];
 
