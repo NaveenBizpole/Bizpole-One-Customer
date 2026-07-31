@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import AOS from "aos";
 import "aos/dist/aos.css";
 import { FaArrowRight } from "react-icons/fa";
+import { removeSecureItem } from "../utils/secureStorage";
 
 
 
@@ -98,7 +99,10 @@ const HeroSection = () => {
             initial="initial"
             whileHover="hovered"
             className="flex items-center gap-3 text-black font-medium border-b-2 border-yellow-400 hover:border-b-0 transition cursor-pointer py-2 sm:py-0 justify-center sm:justify-start text-xl"
-            onClick={() => navigate("/existing-companies")}
+            onClick={() => {
+              removeSecureItem("onboardingStep");
+              navigate("/existing-companies");
+            }}
           >
             {/* Expanding circle effect */}
             <motion.span

@@ -13,6 +13,10 @@ const ExisitingCompanies = () => {
     return saved ? Number(saved) : 1;
   };
   const [step, setStep] = useState(getInitialStep());
+  // Each step's data is kept here so going back and forth between steps
+  // doesn't wipe out what was already typed.
+  const [companyInfoDraft, setCompanyInfoDraft] = useState(null);
+  const [directorsDraft, setDirectorsDraft] = useState(null);
   // Registration details collected in step 3, merged with compliance data in step 4
   const [registrationDetails, setRegistrationDetails] = useState(null);
 
@@ -24,8 +28,19 @@ const ExisitingCompanies = () => {
   return (
     <div className="min-h-screen bg-gray-50">
 
-  {step === 1 && <CompanyInformationForm onNext={() => setStep(2)} step={step} setStep={setStep} />}
-  {step === 2 && <DirectorPromoterForm onNext={() => setStep(3)} onBack={() => setStep(1)} />}
+  {step === 1 && (
+    <CompanyInformationForm
+      initialData={companyInfoDraft}
+      onNext={(data) => { setCompanyInfoDraft(data); setStep(2); }}
+    />
+  )}
+  {step === 2 && (
+    <DirectorPromoterForm
+      initialData={directorsDraft}
+      onNext={(data) => { setDirectorsDraft(data); setStep(3); }}
+      onBack={() => setStep(1)}
+    />
+  )}
   {step === 3 && (
     <RegistrationDetailsForm
       initialData={registrationDetails}

@@ -104,7 +104,7 @@ import { getAllStates } from "../../api/States";
 import { assignCustomer } from "../../api/CustomerApi";
 import { setSecureItem } from "../../utils/secureStorage";
 
-const CompanyInformationForm = ({ onNext }) => {
+const CompanyInformationForm = ({ onNext, initialData }) => {
   const [form, setForm] = useState({
     businessType: "",
     businessName: "",
@@ -131,6 +131,7 @@ const CompanyInformationForm = ({ onNext }) => {
     franchiseeId: "",
     companyMobile: "",
     companyEmail: "",
+    ...initialData,
   });
 
   // Language dropdown options
@@ -391,9 +392,10 @@ const CompanyInformationForm = ({ onNext }) => {
       // Save to secure storage
       await setSecureItem("companyInfo", JSON.stringify(payload));
 
-      // Call onNext callback if provided
+      // Call onNext callback if provided, passing the form data along so
+      // navigating back to this step later can restore what was typed
       if (onNext) {
-        onNext();
+        onNext(form);
       }
     } catch (err) {
       console.error("Error saving company information:", err);
@@ -436,7 +438,7 @@ const CompanyInformationForm = ({ onNext }) => {
               <h1 className="text-2xl font-bold text-gray-800">Company Information</h1>
               <div className="flex items-center gap-2 mt-1">
                 <div className="h-1.5 w-20 bg-yellow-400 rounded-full"></div>
-                <span className="text-xs text-gray-500">Step 1 of 3</span>
+                <span className="text-xs text-gray-500">Step 1 of 4</span>
               </div>
             </div>
  <img
@@ -449,7 +451,7 @@ const CompanyInformationForm = ({ onNext }) => {
           <div className="lg:hidden mb-4">
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-20 bg-yellow-400 rounded-full"></div>
-              <span className="text-xs text-gray-500">Step 1 of 3</span>
+              <span className="text-xs text-gray-500">Step 1 of 4</span>
             </div>
           </div>
 
@@ -1020,15 +1022,7 @@ const CompanyInformationForm = ({ onNext }) => {
           )}
 
           {/* Bottom Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t border-gray-200">
-            <button 
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-all" 
-              type="button" 
-              disabled={loading}
-            >
-              ←
-            </button>
-            
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-4 mt-6 pt-4 border-t border-gray-200">
             <div className="flex flex-col sm:flex-row items-center gap-4">
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" className="w-3.5 h-3.5 accent-yellow-400" />
@@ -1069,12 +1063,12 @@ const CompanyInformationForm = ({ onNext }) => {
 <div className="hidden lg:block w-80 bg-gradient-to-b from-yellow-400 to-yellow-500 text-black p-6 rounded-tl-3xl rounded-bl-3xl">
   <div className="sticky top-30">
     <h2 className="font-bold text-lg mb-1 text-center">Quick Setup</h2>
-    <p className="text-black text-xs mb-8 text-center">Complete these 3 steps</p>
-    
+    <p className="text-black text-xs mb-8 text-center">Complete these 4 steps</p>
+
     <div className="relative">
       {/* Progress Line */}
       <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-yellow-300"></div>
-      
+
       {/* Step 1 */}
       <div className="relative flex items-center gap-3 mb-8">
         <div className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center font-bold text-xs z-10 shadow flex-shrink-0">1</div>
@@ -1084,7 +1078,7 @@ const CompanyInformationForm = ({ onNext }) => {
           <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full mt-0.5 inline-block">Current</span>
         </div>
       </div>
-      
+
       {/* Step 2 */}
       <div className="relative flex items-center gap-3 mb-8">
         <div className="w-6 h-6 bg-white/20 text-black rounded-full flex items-center justify-center font-bold text-xs z-10 flex-shrink-0">2</div>
@@ -1093,25 +1087,34 @@ const CompanyInformationForm = ({ onNext }) => {
           <p className="text-black text-xs">Add directors/promoters</p>
         </div>
       </div>
-      
+
       {/* Step 3 */}
-      <div className="relative flex items-center gap-3">
+      <div className="relative flex items-center gap-3 mb-8">
         <div className="w-6 h-6 bg-white/20 text-black rounded-full flex items-center justify-center font-bold text-xs z-10 flex-shrink-0">3</div>
+        <div>
+          <h3 className="font-semibold text-sm text-black">Registration Status</h3>
+          <p className="text-black text-xs">Company & tax registrations</p>
+        </div>
+      </div>
+
+      {/* Step 4 */}
+      <div className="relative flex items-center gap-3">
+        <div className="w-6 h-6 bg-white/20 text-black rounded-full flex items-center justify-center font-bold text-xs z-10 flex-shrink-0">4</div>
         <div>
           <h3 className="font-semibold text-sm text-black">Compliance</h3>
           <p className="text-black text-xs">Final verification & documents</p>
         </div>
       </div>
     </div>
-    
+
     {/* Progress Summary */}
     <div className="mt-10 p-3 bg-white/10 rounded-lg backdrop-blur-sm">
       <div className="flex justify-between mb-1 text-xs text-black">
         <span>Overall Progress</span>
-        <span className="font-bold">33%</span>
+        <span className="font-bold">25%</span>
       </div>
       <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
-        <div className="w-1/3 h-full bg-white rounded-full"></div>
+        <div className="w-1/4 h-full bg-white rounded-full"></div>
       </div>
     </div>
   </div>
