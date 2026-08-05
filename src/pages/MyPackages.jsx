@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getOrdersByCompanyId } from "../api/Orders/Order";
 import { getSecureItem } from "../utils/secureStorage";
 import DataTable from "../components/Datatable";
-import { DollarSign, Package, FileText, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { DollarSign, Package, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 
 /* ── Order status mapping ── */
 const orderStatusList = [
@@ -40,7 +40,7 @@ const StatusChip = ({ status }) => {
     1: { icon: CheckCircle2, label: 'In Progress', color: 'text-blue-600',   bg: 'bg-blue-50'   },
     2: { icon: CheckCircle2, label: 'Completed',   color: 'text-green-600',  bg: 'bg-green-50'  },
     3: { icon: AlertCircle,  label: 'Pending',     color: 'text-yellow-600', bg: 'bg-yellow-50' },
-    4: { icon: XCircle,      label: 'Disable',     color: 'text-red-500',    bg: 'bg-red-50'    },
+    4: { icon: CheckCircle2, label: 'Completed',   color: 'text-green-600',  bg: 'bg-green-50'  },
     5: { icon: CheckCircle2, label: 'Done',        color: 'text-purple-600', bg: 'bg-purple-50' },
   };
   const cfg = map[status] || { icon: AlertCircle, label: 'Unknown', color: 'text-gray-500', bg: 'bg-gray-50' };
@@ -65,7 +65,7 @@ const ProgressBar = ({ value = 60 }) => (
   </div>
 );
 
-const statusProgress = { 1: 40, 2: 100, 3: 20, 4: 0, 5: 100 };
+const statusProgress = { 1: 40, 2: 100, 3: 20, 4: 100, 5: 100 };
 
 /* ── Amount already paid on an order (Orders.ReceivedAmount, falling back to AdvanceAmount) ── */
 const getPaidAmount = (row) => {
