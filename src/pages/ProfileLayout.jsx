@@ -40,8 +40,6 @@ const ProfileLayout = () => {
   const [companies, setCompanies] = useState([]);
   const navigate = useNavigate();
   const profileCompletion = user?.profileCompletion || 80;
-  const creditScore = user?.creditScore || 755;
-  const creditScorePercent = Math.min(100, Math.max(0, ((creditScore - 300) / (850 - 300)) * 100));
 
   const handlePhotoUpload = () => {
     // wire this up to your actual upload flow
@@ -291,30 +289,6 @@ const ProfileLayout = () => {
 
         {/* Bottom Buttons */}
         <div className="p-6 space-y-4">
-          {/* Credit Score */}
-          <div className="px-6 mt-8 mb-4 text-center">
-            <h3 className="text-base font-bold text-gray-900 mb-4">Your Credit Score</h3>
-            <div className="relative w-40 h-24 mx-auto">
-              <svg viewBox="0 0 200 110" className="w-full h-full">
-                <path d="M 15 100 A 85 85 0 0 1 185 100" fill="none" stroke="#FDE9B8" strokeWidth="10" strokeLinecap="round" />
-                <path
-                  d="M 15 100 A 85 85 0 0 1 185 100"
-                  fill="none"
-                  stroke="#FBBF24"
-                  strokeWidth="10"
-                  strokeLinecap="round"
-                  strokeDasharray="267"
-                  strokeDashoffset={267 - (267 * creditScorePercent) / 100}
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-                <span className="text-2xl font-bold text-gray-900">{creditScore}</span>
-              </div>
-            </div>
-            <button className="text-sm font-semibold text-yellow-600 mt-2 hover:underline">
-              All goals →
-            </button>
-          </div>
           {/* Back to Dashboard Button */}
           <button
             onClick={handleBackToDashboard}
