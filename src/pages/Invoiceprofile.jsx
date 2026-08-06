@@ -8,7 +8,7 @@ import {
   FiX,
   FiAlertCircle,
   FiDownload,
-  FiEye
+
 } from 'react-icons/fi';
 import { getCompanyInvoices, getCompanyOrders } from '../api/Companyinvoice';
 import { getCompanyIdFromStorage } from '../api/Orders/Order';
