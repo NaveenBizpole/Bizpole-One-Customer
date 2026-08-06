@@ -29,7 +29,10 @@ export const getCompanyInvoices = async ({ companyId, limit = 10, page = 1 }) =>
 	if (!ordersRes.success || !Array.isArray(ordersRes.data) || ordersRes.data.length === 0) {
 		return { success: false, data: [], message: ordersRes.message || "No orders found" };
 	}
-	const orderIds = ordersRes.data.map(order => order.OrderID || order.orderId || order.id).filter(Boolean);
+	// order.OrderID is the display code (e.g. "OR000588"), not the numeric primary
+	// key — invoiceforservice.OrderID is numeric, so use order.OrderPK (see the same
+	// distinction documented in MyOrderDetails.jsx's getNumericOrderId).
+	const orderIds = ordersRes.data.map(order => order.OrderPK || order.orderId || order.id).filter(Boolean);
 	if (orderIds.length === 0) {
 		return { success: false, data: [], message: "No valid order IDs found" };
 	}
