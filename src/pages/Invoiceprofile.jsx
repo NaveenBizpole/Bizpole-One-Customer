@@ -7,7 +7,8 @@ import {
   FiMinus,
   FiX,
   FiAlertCircle,
-  FiDownload
+  FiDownload,
+  FiEye
 } from 'react-icons/fi';
 import { getCompanyInvoices, getCompanyOrders } from '../api/Companyinvoice';
 import { getCompanyIdFromStorage } from '../api/Orders/Order';
@@ -427,6 +428,7 @@ const InvoiceProfile = ({ showRefundLink = false }) => {
                         <th className="text-left py-3 px-5 text-xs font-medium text-gray-500">Due date</th>
                         <th className="text-left py-3 px-5 text-xs font-medium text-gray-500">Description</th>
                         <th className="text-left py-3 px-5 text-xs font-medium text-gray-500">Status</th>
+                        <th className="text-left py-3 px-5 text-xs font-medium text-gray-500">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -453,6 +455,18 @@ const InvoiceProfile = ({ showRefundLink = false }) => {
                               <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusBadge(status)}`}>
                                 {status}
                               </span>
+                            </td>
+                            <td className="py-3.5 px-5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewInvoice(invoice);
+                                }}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50 transition-colors"
+                              >
+                               
+                                View
+                              </button>
                             </td>
                           </tr>
                         );

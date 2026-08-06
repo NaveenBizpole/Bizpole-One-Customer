@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { getAllOrdersByCompany } from "../api/Orders/Order";
 import {
   getRefundable,
@@ -16,6 +17,7 @@ const STATUS_STYLES = {
 };
 
 const Refunds = () => {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -119,7 +121,18 @@ const Refunds = () => {
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Refunds</h1>
+      <div className="flex items-center gap-3 mb-1">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+          
+        </button>
+        <h1 className="text-2xl font-bold text-gray-900">Refunds</h1>
+      </div>
       <p className="text-sm text-gray-500 mb-6">Request a refund for an order and track its status.</p>
 
       {/* My refunds */}
