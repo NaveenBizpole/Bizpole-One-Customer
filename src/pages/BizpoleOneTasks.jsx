@@ -392,21 +392,7 @@ export default function ServiceSelection() {
         return;
       }
 
-      // The API returns response sets for every company that has ever used
-      // this ServiceID, so only keep the ones belonging to the currently
-      // selected company/quote before using them for task status (same
-      // filtering as the Documents tab fetch below).
-      const serviceCompanyId = selectedService?.CompanyID || selectedService?.companyId || companyId;
-      const serviceQuoteId = selectedService?.QuoteID || navQuoteId;
-
-      const matchingSets = response.results.filter((r) => {
-        const companyMatches = String(r.company_id) === String(serviceCompanyId);
-        const quoteMatches =
-          !serviceQuoteId || r.quote_id == null || String(r.quote_id) === String(serviceQuoteId);
-        return companyMatches && quoteMatches;
-      });
-
-      setResponseFields(matchingSets);
+      setResponseFields(response.results);
     } catch (error) {
       console.error("Error fetching response fields:", error);
       setResponseFields([]);
@@ -416,7 +402,7 @@ export default function ServiceSelection() {
   };
   useEffect(() => {
     fetchFields();
-  }, [selectedService?.ServiceID, selectedService?.CompanyID, selectedService?.QuoteID, companyId, navQuoteId]);
+  }, [selectedService?.ServiceID]);
 
   // Fetch deliverables
   useEffect(() => {
