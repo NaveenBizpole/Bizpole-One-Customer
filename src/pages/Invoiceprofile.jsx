@@ -72,8 +72,10 @@ const InvoiceProfile = ({ showRefundLink = false }) => {
       ]);
 
       if (response.success && Array.isArray(response.data)) {
+        // o.OrderID is the display code (e.g. "OR000588"); invoice.OrderID from
+        // invoiceforservice is numeric, so key this map by the numeric OrderPK instead.
         const ordersByOrderId = new Map(
-          (Array.isArray(ordersRes?.data) ? ordersRes.data : []).map((o) => [String(o.OrderID), o])
+          (Array.isArray(ordersRes?.data) ? ordersRes.data : []).map((o) => [String(o.OrderPK ?? o.OrderID), o])
         );
         const enriched = response.data.map((inv) => {
           const order = ordersByOrderId.get(String(inv.OrderID));
