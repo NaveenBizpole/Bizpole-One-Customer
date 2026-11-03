@@ -1,4 +1,12 @@
 import { api } from "./axiosInstance";
+import { getLeadAttribution } from "../utils/leadAttribution";
+
+// A tracked search can create the customer's Lead / Deal in the CRM — its
+// ad-click attribution (JSON) sets that record's source.
+const attributionParam = () => {
+  const a = getLeadAttribution();
+  return a ? JSON.stringify(a) : undefined;
+};
 
 // Public proxy to the MarkSimpl trademark search API (server: /api/trademark/search).
 // type: WORD_MARK | PROPRIETOR_NAME | APPLICATION_NUMBER
@@ -15,6 +23,7 @@ export const searchTrademarks = async ({ q, type = "WORD_MARK", classes = [], li
       limit,
       offset,
       track: track ? 1 : undefined,
+      attribution: track ? attributionParam() : undefined,
     },
   });
   return data.usage ? { ...data.data, usage: data.usage } : data.data;
@@ -34,6 +43,7 @@ export const searchTrademarksByImage = async ({ file, q, classes = [], limit = 1
   form.append("limit", limit);
   form.append("offset", offset);
   if (track) form.append("track", 1);
+  if (track && attributionParam()) form.append("attribution", attributionParam());
   const { data } = await api.post("/api/trademark/image-search", form);
   return data.usage ? { ...data.data, usage: data.usage } : data.data;
 };
@@ -47,6 +57,12 @@ export const getTrademarkSearchHistory = async () => {
 // One saved search with its results, for re-downloading its report.
 export const getTrademarkSearchHistoryEntry = async (id) => {
   const { data } = await api.get(`/api/trademark/history/${id}`);
+  return data.data;
+};
+
+// A report opened from the CRM: `t` is its signed link token (no sign-in).
+export const getSharedTrademarkReport = async (t) => {
+  const { data } = await api.get("/api/trademark/shared-report", { params: { t } });
   return data.data;
 };
 

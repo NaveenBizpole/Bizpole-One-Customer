@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import AOS from "aos";
 import useAutoLogout from "./hooks/useAutoLogout";
 import useLegacyReferral from "./hooks/useLegacyReferral";
+import axiosInstance from "./api/axiosInstance";
+import { setInternalServiceStatuses } from "./utils/orderStatus";
 
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
@@ -55,6 +57,7 @@ import CancellationRefundPolicy from "./pages/CancellationRefundPolicy";
 import AssociatePrivacyPolicy from "./pages/associate/AssociatePrivacyPolicy";
 import AssociateTermsAndConditions from "./pages/associate/AssociateTermsAndConditions";
 import AssociateReferralConductPolicy from "./pages/associate/AssociateReferralConductPolicy";
+import AssociateCancellationRefundPolicy from "./pages/associate/AssociateCancellationRefundPolicy";
 
 
 import Plansandpricing from "./pages/Plansandpricing";
@@ -72,6 +75,7 @@ import { CartProvider } from "./context/CartContext";
 import GlobalCart from "./components/Cart/GlobalCart";
 import InvoicePreview from "./pages/InvoicePreview";
 import WhatsAppLogin from "./pages/WhatsAppLogin";
+import TrademarkSharedReport from "./pages/TrademarkSharedReport";
 
 
 // Associate Dashboard
@@ -111,10 +115,22 @@ function App() {
     AOS.init({ duration: 1000 });
   }, []);
 
+  // Service statuses set as Internal in Status Master, so the portal shows the
+  // status chosen there instead. Needs a session token; without one (or if the
+  // call fails) the portal's fixed status mapping is used as before.
+  useEffect(() => {
+    if (!(localStorage.getItem("partnerToken") || localStorage.getItem("token"))) return;
+    axiosInstance
+      .get("/customerStatusMap")
+      .then((res) => setInternalServiceStatuses(res?.data?.data?.service))
+      .catch(() => {});
+  }, [location.pathname.startsWith("/dashboard")]);
+
   // Hide Navbar & Footer for these paths
   const hideLayoutPaths = [
     "/payments",
     "/wa-login",
+    "/trademark-report",
     "/quiz",
     "/profile",
     // "/existing-companies",
@@ -126,6 +142,7 @@ function App() {
     "/partner-privacy-policy",
     "/partner-terms-and-conditions",
     "/partner-referral-conduct-policy",
+    "/partner-cancellation-refund-policy",
   ];
 
   const hideLayout = hideLayoutPaths.some((path) =>
@@ -177,12 +194,15 @@ function App() {
           <Route path="/questions" element={<BusinessQuizWizard />} />
           {/* Sign-in link sent by the WhatsApp assistant (document upload) */}
           <Route path="/wa-login" element={<WhatsAppLogin />} />
+          {/* A report opened from the CRM (signed link, no sign-in). */}
+          <Route path="/trademark-report" element={<TrademarkSharedReport />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
           <Route path="/cancellation-refund-policy" element={<CancellationRefundPolicy />} />
           <Route path="/partner-privacy-policy" element={<AssociatePrivacyPolicy />} />
           <Route path="/partner-terms-and-conditions" element={<AssociateTermsAndConditions />} />
           <Route path="/partner-referral-conduct-policy" element={<AssociateReferralConductPolicy />} />
+          <Route path="/partner-cancellation-refund-policy" element={<AssociateCancellationRefundPolicy />} />
 
           {/* Referral & Affiliate Programme */}
           <Route path="/r/:code" element={<ReferralLanding />} />

@@ -13,7 +13,8 @@ export const getServices = async ({ page = 1, limit = 10, filter = "", categoryI
 // ✅ Fetch services for a specific category
 export const getServicesByCategory = async (categoryId, { page = 1, limit = 2, filter = "" } = {}) => {
   if (!categoryId) return { data: [], total: 0 };
-  const params = { page, limit };
+  // customerView: only services shown to customers, in the admin-set order
+  const params = { page, limit, customerView: 1 };
   if (filter) params.filter = filter;
 
   const res = await axiosInstance.get(`/service-categories/${categoryId}`, { params });
