@@ -75,7 +75,7 @@ import { CartProvider } from "./context/CartContext";
 import GlobalCart from "./components/Cart/GlobalCart";
 import InvoicePreview from "./pages/InvoicePreview";
 import WhatsAppLogin from "./pages/WhatsAppLogin";
-import TrademarkSharedReport from "./pages/TrademarkSharedReport";
+import TrademarkReportPage from "./pages/TrademarkReportPage";
 
 
 // Associate Dashboard
@@ -104,6 +104,8 @@ import ReferralLanding from "./pages/ReferralLanding";
 import AffiliateLanding from "./pages/affiliate/AffiliateLanding";
 import AffiliateLayout from "./pages/affiliate/AffiliateLayout";
 import AffiliateDashboard from "./pages/affiliate/AffiliateDashboard";
+import { applyPageMeta } from "./utils/pageTitles";
+import { trackEvent } from "./utils/analytics";
 
 function App() {
   const location = useLocation();
@@ -114,6 +116,18 @@ function App() {
   useEffect(() => {
     AOS.init({ duration: 1000 });
   }, []);
+
+  // Each route's own title / description / canonical (SEO), then its Google
+  // Analytics page view — sent here (not by GA's automatic history tracking)
+  // so it carries the new title.
+  useEffect(() => {
+    applyPageMeta(location.pathname);
+    trackEvent("page_view", {
+      page_title: document.title,
+      page_location: window.location.href,
+      page_path: location.pathname,
+    });
+  }, [location.pathname]);
 
   // Service statuses set as Internal in Status Master, so the portal shows the
   // status chosen there instead. Needs a session token; without one (or if the
@@ -194,8 +208,8 @@ function App() {
           <Route path="/questions" element={<BusinessQuizWizard />} />
           {/* Sign-in link sent by the WhatsApp assistant (document upload) */}
           <Route path="/wa-login" element={<WhatsAppLogin />} />
-          {/* A report opened from the CRM (signed link, no sign-in). */}
-          <Route path="/trademark-report" element={<TrademarkSharedReport />} />
+          {/* Report link sent on WhatsApp / email / from the CRM — no sign-in */}
+          <Route path="/trademark-report" element={<TrademarkReportPage />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
           <Route path="/cancellation-refund-policy" element={<CancellationRefundPolicy />} />

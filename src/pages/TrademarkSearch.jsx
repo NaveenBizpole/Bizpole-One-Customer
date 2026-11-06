@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { trackEvent } from "../utils/analytics";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { FaSearch, FaRegCopyright, FaChevronLeft, FaChevronRight, FaArrowRight, FaFilePdf, FaLock, FaImage, FaTimes } from "react-icons/fa";
+import { FaSearch, FaRegCopyright, FaChevronLeft, FaChevronRight, FaArrowRight, FaFilePdf, FaLock, FaImage, FaTimes, FaWhatsapp } from "react-icons/fa";
 import {
   searchTrademarks,
   searchTrademarksByImage,
@@ -9,6 +10,7 @@ import {
   getTrademarkSearchHistoryEntry,
   getTrademarkAssessment,
   fetchTrademarkImage,
+  sendTrademarkReportToWhatsApp,
 } from "../api/TrademarkApi";
 import { NICE_CLASSES } from "../components/ExixistingCompany/existingCompanyData";
 import { LeadCaptureModal, requireVerifiedCustomer } from "../components/ExixistingCompany/FlowRunner";
@@ -18,6 +20,8 @@ import TrademarkReport from "../components/Trademark/TrademarkReport";
 import TrademarkHeroArt from "../components/Trademark/TrademarkHeroArt";
 import ClassSelect from "../components/Trademark/ClassSelect";
 import HistoryMenu from "../components/Trademark/HistoryMenu";
+import WhatsAppReportModal from "../components/Trademark/WhatsAppReportModal";
+import SigninModal from "../components/Modals/SigninModal";
 import ServiceDetails from "./ServiceDetails";
 import { saveElementAsPdf } from "../utils/elementToPdf";
 import "../components/newco-theme.css";
@@ -261,6 +265,39 @@ export default function TrademarkSearch({ embedded = false }) {
   // Lead is raised in the background rather than holding the report locked.
   const askToSignIn = () => requireVerifiedCustomer(gate, bumpGate, onVerified, { immediate: true });
 
+  // Not signed in: instead of sign-up, ask name, mobile, state and language and
+  // send the report to their WhatsApp (server saves it for that mobile and
+  // raises the Lead). The details are kept for this visit, so their later
+  // searches go to WhatsApp without asking again.
+  const [waOpen, setWaOpen] = useState(false);
+  const [waSignIn, setWaSignIn] = useState(false);
+  const [waNotice, setWaNotice] = useState("");
+  const waContact = useRef(null);
+
+  const sendToWhatsApp = async (contact, params, firstSend = true) => {
+    try {
+      const data = await sendTrademarkReportToWhatsApp({ ...contact, params, limit: PAGE_SIZE, firstSend });
+      setWaNotice(data.message);
+    } catch (err) {
+      throw new Error(err.response?.data?.message || "Could not send your report right now. Please try again.");
+    }
+  };
+
+  const submitWhatsAppDetails = async (contact) => {
+    await sendToWhatsApp(contact, lastSearch.current.params);
+    waContact.current = contact;
+    setWaOpen(false);
+    setUnlocked(true);
+  };
+
+  const askForReport = () => {
+    if (localStorage.getItem("token")) askToSignIn();
+    else {
+      setWaOpen(true);
+      trackEvent("whatsapp_report_form_open", { form: "trademark_whatsapp", path: window.location.pathname });
+    }
+  };
+
   const activeType = SEARCH_TYPES.find((t) => t.value === type);
   const placeholder = (isPhone && activeType.shortPlaceholder) || activeType.placeholder;
 
@@ -269,6 +306,7 @@ export default function TrademarkSearch({ embedded = false }) {
     setError("");
     try {
       const data = await fetchSearch(params, nextPage);
+      if (!nextPage) trackEvent("trademark_search", { search_type: params.type, results: data?.total ?? data?.results?.length ?? 0 });
       setResult(data);
       setSubmitted(params);
       setPage(nextPage);
@@ -277,7 +315,12 @@ export default function TrademarkSearch({ embedded = false }) {
         setHistory((h) => ({ ...h, signedIn: true, usage: { used: data.usage.used, limit: data.usage.limit } }));
         loadHistory();
       }
-      if (!unlocked && data?.results?.length) askToSignIn();
+      if (data?.results?.length && !localStorage.getItem("token") && waContact.current) {
+        // A new search (not another page) by a visitor who already gave their details.
+        if (nextPage === 0) sendToWhatsApp(waContact.current, params, false).catch((err) => setError(err.message));
+      } else if (!unlocked && data?.results?.length) {
+        askForReport();
+      }
     } catch (err) {
       if (err.response?.data?.limitReached) markLimitReached(err);
       else setError(err.response?.data?.message || "Could not search trademarks right now. Please try again.");
@@ -514,13 +557,13 @@ export default function TrademarkSearch({ embedded = false }) {
           ) : (
           <form onSubmit={handleSubmit} className="xl:pl-[29px]">
             {/* One row on phones: smaller pills, scrolls sideways if a screen is too narrow */}
-            <div className="flex flex-nowrap sm:flex-wrap justify-start min-[360px]:justify-center gap-1.5 sm:gap-2 mb-6 sm:mb-8 lg:mb-[46px] xl:pr-[8%] overflow-x-auto sm:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex flex-nowrap sm:flex-wrap justify-center-safe gap-1 min-[400px]:gap-1.5 sm:gap-2 mb-6 sm:mb-8 lg:mb-[46px] xl:pr-[8%] overflow-x-auto sm:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {SEARCH_TYPES.map((t) => (
                 <button
                   key={t.value}
                   type="button"
                   onClick={() => setType(t.value)}
-                  className={`shrink-0 whitespace-nowrap h-[34px] sm:h-[37px] px-3 sm:px-4 rounded-full text-[13px] sm:text-[15px] font-medium border transition ${
+                  className={`shrink-0 whitespace-nowrap h-[34px] sm:h-[37px] px-2.5 min-[400px]:px-3 sm:px-4 rounded-full text-[13px] sm:text-[15px] font-medium border transition ${
                     type === t.value
                       ? "bg-[#111827] text-white border-[#111827]"
                       : "bg-white text-gray-700 border-gray-200 hover:border-black hover:text-black"
@@ -804,12 +847,20 @@ export default function TrademarkSearch({ embedded = false }) {
                   <p className="text-sm text-gray-500">
                     Showing {startIndex + 1}–{startIndex + results.length}
                   </p>
-                  {!unlocked && !gate.leadGate && (
+                  {!unlocked && !gate.leadGate && !waOpen && (
                     <button
-                      onClick={askToSignIn}
+                      onClick={askForReport}
                       className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#FFC72C] hover:bg-[#FFBD00] text-black text-sm font-semibold"
                     >
-                      <FaLock /> Sign up to view report
+                      {localStorage.getItem("token") ? (
+                        <>
+                          <FaLock /> Sign up to view report
+                        </>
+                      ) : (
+                        <>
+                          <FaWhatsapp /> Get report on WhatsApp
+                        </>
+                      )}
                     </button>
                   )}
                   {unlocked && (
@@ -824,6 +875,16 @@ export default function TrademarkSearch({ embedded = false }) {
                 </div>
               )}
             </div>
+
+            {waNotice && (
+              <div className="mb-5 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                <FaWhatsapp className="mt-0.5 shrink-0 text-lg text-emerald-600" />
+                <p className="flex-1">{waNotice}</p>
+                <button type="button" aria-label="Dismiss" onClick={() => setWaNotice("")} className="text-emerald-600 hover:text-emerald-800">
+                  <FaTimes />
+                </button>
+              </div>
+            )}
 
             {results.length === 0 ? (
               <div className="rounded-2xl bg-white border border-gray-200 p-10 text-center">
@@ -937,6 +998,29 @@ export default function TrademarkSearch({ embedded = false }) {
             subtitle="We'll verify your mobile with a code emailed to you. Your Trademark Search Report will also be sent to your email."
           />
         </div>
+      )}
+
+      {waOpen && (
+        <WhatsAppReportModal
+          initial={waContact.current}
+          onSubmit={submitWhatsAppDetails}
+          onClose={() => setWaOpen(false)}
+          onSignIn={() => {
+            setWaOpen(false);
+            setWaSignIn(true);
+          }}
+        />
+      )}
+      {/* "Already have an account? Sign in" from the WhatsApp form — then the
+          usual signed-in path (report unlocked, saved to their history). */}
+      {waSignIn && (
+        <SigninModal
+          onClose={() => setWaSignIn(false)}
+          onSuccess={() => {
+            setWaSignIn(false);
+            askToSignIn();
+          }}
+        />
       )}
     </div>
   );
