@@ -180,7 +180,7 @@ const ServiceCard = ({ service, onLearnMore, isSelected, onSelect, price: fetche
 
         {/* Features */}
         {features.length > 0 && (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2 mb-4">
+          <div className="grid grid-cols-1 min-[440px]:grid-cols-2 gap-x-3 gap-y-2 mb-4">
             {features.slice(0, 4).map((feat, i) => (
               <div key={i} className="flex items-center gap-1.5 text-xs text-gray-600">
                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isSelected ? "bg-[#F3C625]" : "bg-gray-300"}`} />
@@ -663,22 +663,6 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
   //   }
   // };
 
-  // Store latest known prices for selected services in localStorage
-  useEffect(() => {
-    if (Object.keys(bulkPrices).length > 0) {
-      try {
-        const prev = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}") || {};
-        const updated = { ...prev };
-        Object.entries(bulkPrices).forEach(([sid, priceObj]) => {
-          if (priceObj && priceObj.TotalFee) {
-            updated[sid] = priceObj.TotalFee;
-          }
-        });
-        localStorage.setItem("SelectedServicePrices", JSON.stringify(updated));
-      } catch (err) { console.log(err); }
-    }
-  }, [bulkPrices]);
-
   if (embedded && detailServiceId) {
     return (
       <ServiceDetails
@@ -833,9 +817,9 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
             transition={{ duration: 0.3 }}
             className="flex-shrink-0 overflow-hidden"
           >
-            <div className="w-full lg:w-60 bg-white rounded-3xl border border-gray-100 shadow-sm p-5 sticky">
+            <div className="w-full lg:w-60 bg-white rounded-3xl border border-gray-100 shadow-sm p-4 lg:p-5 sticky">
               {/* Sidebar Header */}
-              <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center justify-between mb-4 lg:mb-5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-xl bg-[#F3C625] flex items-center justify-center">
                     <IconFilter />
@@ -848,7 +832,7 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
               </div>
 
               {/* Search */}
-              <div className="mb-5">
+              <div className="mb-4 lg:mb-5">
                 <p className="text-xs font-semibold text-gray-500 mb-2">Search Services</p>
                 <div className="relative">
                   <input
@@ -867,10 +851,11 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
               {/* Categories */}
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">Categories</p>
-                <div className="space-y-1.5">
+                {/* Phones/tablets: one swipeable row of chips; desktop: the sidebar list */}
+                <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:block lg:space-y-1.5 lg:overflow-visible lg:pb-0">
                   <button
                     onClick={() => handleCategoryChange("")}
-                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all ${!selectedCategory
+                    className={`shrink-0 whitespace-nowrap lg:whitespace-normal lg:w-full flex items-center gap-2 lg:gap-2.5 px-3 lg:px-4 py-2 lg:py-2.5 rounded-full lg:rounded-lg text-sm font-semibold transition-all ${!selectedCategory
                       ? "bg-[#F3C625] text-white shadow-sm"
                       : "bg-gray-100 text-gray-500 hover:bg-gray-200"
                       }`}
@@ -888,7 +873,7 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
                         <button
                           key={cat.CategoryID}
                           onClick={() => handleCategoryChange(cat.CategoryID.toString())}
-                          className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-left transition-all ${isActive
+                          className={`shrink-0 whitespace-nowrap lg:whitespace-normal lg:w-full flex items-center gap-2 lg:gap-2.5 px-3 lg:px-4 py-2 lg:py-2.5 rounded-full lg:rounded-lg text-sm font-semibold text-left transition-all ${isActive
                             ? "bg-[#F3C625] text-white shadow-sm"
                             : "bg-gray-50 text-gray-500 hover:bg-gray-200"
                             }`}
@@ -902,8 +887,8 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
                 </div>
               </div>
 
-              {/* Your Selection */}
-              <div className="mt-6 pt-4 border-t border-gray-100">
+              {/* Your Selection — on phones/tablets only once something is picked */}
+              <div className={`mt-5 lg:mt-6 pt-4 border-t border-gray-100 ${selectedServices.length === 0 ? "hidden lg:block" : ""}`}>
                 <div className="flex items-center gap-2 mb-3">
                   <ShoppingCart size={16} className="text-gray-700" strokeWidth={2} />
                   <span className="font-bold text-gray-900 text-sm">Your Selection</span>
@@ -932,12 +917,7 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
                         const CategoryIcon = getCategoryIcon(categoryName);
 
                         let price = bulkPrices[sid]?.TotalFee;
-                        if (!price) {
-                          try {
-                            const priceCache = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}");
-                            price = priceCache[sid];
-                          } catch (error) { console.error("Error fetching services:", error); }
-                        }
+                        if (!price) price = cart[sid]?.TotalFee;
 
                         return (
                           <div key={sid} className="relative bg-[#FFFCF0] border border-amber-100 rounded-2xl p-3.5 pr-8">
@@ -992,10 +972,7 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
                                 } else if (typeof price === "number" || typeof price === "string") {
                                   value = parseFloat(price) || 0;
                                 } else {
-                                  try {
-                                    const priceCache = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}");
-                                    value = parseFloat(priceCache[sid]) || 0;
-                                  } catch (error) { console.error("Error fetching services:", error); }
+                                  value = parseFloat(cart[sid]?.TotalFee) || 0;
                                 }
                                 return sum + value;
                               }, 0).toLocaleString("en-IN")}
@@ -1012,10 +989,7 @@ const Services = ({ embedded = false, initialServiceId = null }) => {
                                 } else if (typeof price === "number" || typeof price === "string") {
                                   value = parseFloat(price) || 0;
                                 } else {
-                                  try {
-                                    const priceCache = JSON.parse(localStorage.getItem("SelectedServicePrices") || "{}");
-                                    value = parseFloat(priceCache[sid]) || 0;
-                                  } catch (error) { console.error("Error fetching services:", error); }
+                                  value = parseFloat(cart[sid]?.TotalFee) || 0;
                                 }
                                 return sum + value;
                               }, 0).toLocaleString("en-IN")}
