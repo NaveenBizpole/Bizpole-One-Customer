@@ -18,6 +18,9 @@ const GUIDES = {
   owners: { icon: Users, title: "Add owners & directors", body: "Add every director, partner or shareholder with their KYC details and shareholding.", points: ["PAN & Aadhaar verified", "Shareholding adds to 100%", "Minors need a guardian"] },
   documents: { icon: FileText, title: "Keep your documents ready", body: "Upload clear scans or photos. You can also skip a document now and upload it later from your dashboard.", points: ["PDF, JPG or PNG", "Clear & readable copies", "Upload later if needed"] },
   addons: { icon: ListChecks, title: "Additional registrations", body: "Add registrations your business will need from day one and save time by filing them together.", points: ["Recommended for your activity", "Filed alongside incorporation", "One place to track all"] },
+  // Business Registration's merged steps (step.guide overrides the id lookup).
+  activityObjective: { icon: Sparkles, title: "Your activity, objective & NIC code", body: "Tell us what your business does — we draft your main business objective and suggest a NIC code from it, right below. Review and edit before filing.", points: ["Pick the closest activity", "AI-drafted objective", "Suggested NIC codes"] },
+  addonsPackages: { icon: Package, title: "Add registrations or a package", body: "Both are optional. Add registrations you'll need from day one, or bundle a package for support after registration — or just continue.", points: ["Recommended for your activity", "Optional package", "Skip to dashboard anytime"] },
   __review: { icon: ClipboardCheck, title: "Review before you pay", body: "Check every detail carefully — the government filing uses exactly what you enter here.", points: ["Edit any section", "Confirm all details", "Then pick a package"] },
   __packages: { icon: Package, title: "Choose your package", body: "Every package includes expert filing. Pick the one that fits the support you need after registration.", points: ["Transparent pricing", "Government fee included", "No hidden charges"] },
   __payment: { icon: ShieldCheck, title: "Secure payment", body: "Pay securely online, or request a call back and our advisor will help you complete the application.", points: ["Encrypted payment", "Instant receipt", "Call back on request"] },
@@ -46,7 +49,7 @@ function Illustration({ icon: Icon }) {
 }
 
 export default function FlowStepGuide({ step }) {
-  const g = GUIDES[step?.id] || FALLBACK;
+  const g = GUIDES[step?.guide] || GUIDES[step?.id] || FALLBACK;
   return (
     <aside className="hidden xl:block xl:sticky xl:top-6">
       <div className="rounded-2xl border border-[#EEEAE0] bg-[#FAF8F3] shadow-[0_8px_24px_rgba(16,24,40,0.08)] px-5 pt-8 pb-6 min-h-[74vh]">

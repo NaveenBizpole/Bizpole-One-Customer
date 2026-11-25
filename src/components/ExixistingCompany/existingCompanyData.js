@@ -512,65 +512,156 @@ export function tmRiskLevel(results) {
 }
 
 /* ---------------------------------------------------------------------------
-   New-company registration steps (used by ex-business → "Register another/new
-   company", and ex-trademark → "New Trademark" reuses the "trademark" flow below)
+   New-company registration step builders, shared by two flows that are now
+   allowed to diverge:
+     - newcoBusinessSteps() — ex-business → "Register another/new company"
+       (existing customer), kept on the original step order.
+     - bizRegSteps()        — the "Start Your Business" Business Registration
+       flow (FLOWS.newco), which gets its own order/steps.
+   (ex-trademark → "New Trademark" reuses the "trademark" flow below.)
 --------------------------------------------------------------------------- */
+const bizTypeStep = () => ({ id: "type", title: "Business Type", fields: [
+  cardsField("businessType", "What type of business do you want to register?", BIZ_TYPES, { cols: 2, hint: "Not sure which is right? Use Help Me Choose below, or pick the closest — our advisor will confirm before filing." }),
+  { type: "helpChoose" },
+] });
+// Name availability (MCA + trademark) is checked on the Business Name step
+// itself — see NameCheckBody in FlowRunner.jsx.
+const bizNameStep = () => ({ id: "name", title: "Business Name", fields: [
+  ynField("hasName", "Do you already have a preferred business/company name?"),
+  textField("name1", "Proposed Name 1", { showIf: (A) => A.hasName === "Yes", full: true }),
+  textField("name2", "Proposed Name 2", { showIf: (A) => A.hasName === "Yes", full: true, required: false }),
+  textField("name3", "Proposed Name 3", { showIf: (A) => A.hasName === "Yes", full: true, required: false }),
+  { type: "suggestNames", showIf: (A) => A.hasName === "No", full: true },
+] });
+const bizActivityStep = () => ({ id: "activity", title: "Business Activity", fields: [
+  cardsField("activity", "What does your business do?", ACTIVITIES, { cols: 3 }),
+  areaField("activityDesc", "Describe your business activity", { full: true, ph: "e.g. We design and sell custom industrial packaging to FMCG manufacturers." }),
+] });
+const bizObjectiveStep = () => ({ id: "objective", title: "AI Business Objective & NIC Code", type: "objective" });
+// Business Registration only: Activity + AI Objective/NIC on one page — the
+// activity fields on top, the objective/NIC section (ObjectiveBody, inline)
+// below. An "objective" step that also carries `fields` renders and validates both.
+const bizActivityObjectiveStep = () => ({ ...bizActivityStep(), title: "Business Activity & Objective", type: "objective", guide: "activityObjective" });
+const bizAddressStep = () => ({ id: "address", title: "Business Address", fields: [
+  ...addressFields("", "Where will the business operate from?"),
+  ynField("isRegisteredAddress", "Is this the registered business address?", { full: true }),
+  // Not the registered address → either Bizpole arranges a virtual office
+  // (just the preferred location), or the applicant enters their separate
+  // registered office address below.
+  ynField("wantsVirtualOffice", "Are you looking for a virtual office?", { full: true, showIf: (A) => A.isRegisteredAddress === "No" }),
+  noteField(() => ({ variant: "info", body: "Our team will arrange a virtual office to use as your registered business address. Tell us where you'd like it." }), { full: true, showIf: (A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes" }),
+  pickField("vo_state", "Preferred State for Virtual Office", STATES, { showIf: (A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes" }),
+  textField("vo_city", "Preferred City for Virtual Office", { showIf: (A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes" }),
+  ...addressFields("reg", "Registered office address").map((f) => ({ ...f, ...(f.label && { label: "Registered " + f.label }), showIf:(A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "No" })),
+  cardsField("propertyType", "Do you own or rent this property?", ["Owned", "Rented", "Leased", "Other"], { cols: 2, full: true, showIf: (A) => A.isRegisteredAddress === "Yes" || A.wantsVirtualOffice === "No" }),
+] });
+// Business Registration only: one director's name + how many directors, asked
+// on Business Address for a Private Limited / LLP (OPC always has exactly one
+// director; Sole Proprietorship / Partnership Firm have none). The count drives
+// the "Change in Directors (Addition)" line (directors beyond the 2 included)
+// and the number of slots on the Directors step after payment.
+export const DIRECTOR_COUNT_TYPES = ["Private Limited Company", "Limited Liability Partnership (LLP)"];
+export const BASE_DIRECTORS = 2;
+export const asksDirectorCount = (A) => DIRECTOR_COUNT_TYPES.includes(A.businessType);
+const isLLP = (A) => A.businessType === "Limited Liability Partnership (LLP)";
+const DIRECTOR_COUNT_OPTS = Array.from({ length: 14 }, (_, i) => String(i + 2)); // "2".."15"
+const bizRegAddressStep = (A) => {
+  const base = bizAddressStep();
+  const llp = isLLP(A);
+  return { ...base, fields: [
+    ...base.fields,
+    noteField(() => ({ variant: "info", title: llp ? "Designated Partners" : "Directors",
+      body: `${llp ? "An LLP" : "A Private Limited Company"} needs at least ${BASE_DIRECTORS} ${llp ? "designated partners" : "directors"} — our fee covers ${BASE_DIRECTORS}. Each one beyond that is added to your quote as a director addition. Full details are collected after payment.` }),
+      { full: true, showIf: asksDirectorCount }),
+    textField("br_directorName", llp ? "Name of a designated partner" : "Name of a director", { pattern: "personName", showIf: asksDirectorCount }),
+    pickField("br_directorCount", llp ? "Number of designated partners" : "Number of directors", DIRECTOR_COUNT_OPTS, { showIf: asksDirectorCount }),
+  ] };
+};
+// Business Registration's automatic quote lines (FLOWS.newco.extraLines) — not
+// picked by the applicant, shown only in the Payment fee summary:
+//   - Name Reservation for a Private Limited / LLP / OPC (RUN / name approval).
+//   - "Change in Directors (Addition)" once per director beyond the 2 included
+//     (the quote API has no quantity, so one line each; the fee summary groups them).
+// fallback* prices apply only when the price master has no row for the
+// applicant's state (see FlowRunner's pricedLine).
+export const NAME_RESERVATION_TYPES = ["Private Limited Company", "Limited Liability Partnership (LLP)", "One Person Company (OPC)"];
+export const NAME_RESERVATION_SERVICE_ID = 345;
+export const DIRECTOR_ADDITION_SERVICE_ID = 19; // S0000019 "Change in Directors (Addition)"
+export const DIRECTOR_ADDITION_NAME = "Change in Directors (Addition)";
+export function extraDirectorCount(A) {
+  if (!asksDirectorCount(A)) return 0;
+  return Math.max(0, (parseInt(A.br_directorCount, 10) || 0) - BASE_DIRECTORS);
+}
+export function bizRegExtraLines(A) {
+  const lines = [];
+  if (NAME_RESERVATION_TYPES.includes(A.businessType)) {
+    lines.push({ name: "Name Reservation", serviceId: NAME_RESERVATION_SERVICE_ID, fallbackProfessional: 0, fallbackGovt: 1000, group: "Name Reservation" });
+  }
+  for (let i = 0; i < extraDirectorCount(A); i++) {
+    lines.push({ name: DIRECTOR_ADDITION_NAME, serviceId: DIRECTOR_ADDITION_SERVICE_ID, fallbackProfessional: 1500, fallbackGovt: 500, group: DIRECTOR_ADDITION_NAME });
+  }
+  return lines;
+}
+// Business Registration only: add-ons + package picker on one optional step
+// (both may be left empty). Replaces the separate Packages step for this flow
+// (FLOWS.newco.packagesInline) and is where "Skip for now — go to dashboard"
+// starts being offered (skipToDashboard).
+const bizAddonsPackagesStep = () => ({
+  ...addonStep(),
+  title: "Additional Registrations & Packages",
+  type: "addonsPackages",
+  guide: "addonsPackages",
+  skipToDashboard: true,
+  fields: addonStep().fields.map((f) => (f.k === "additionalServices" ? { ...f, required: false } : f)),
+});
+const bizOwnersStep = (A) => ({ id: "owners", title: (ownerConfig(A)).label, type: "owners" });
+const bizDocsStep = () => docStep([], {
+  // One PAN/Aadhaar/Photograph/Address-proof upload slot per director/shareholder
+  // actually added on the Owners step (each in their own section), instead of one
+  // generic flat set for everyone.
+  groupedItems: (A, state) => {
+    const owners = (state && state.owners) || [];
+    const groups = owners.map((o, i) => {
+      const label = o.name || `Director ${i + 1}`;
+      const items = [`PAN – ${label}`, `Aadhaar / ID Proof – ${label}`, `Photograph – ${label}`, `Address Proof – ${label}`];
+      if (isMinor(o.dob)) items.push(`Nominee ID Proof – ${label}`);
+      return { title: label, items };
+    });
+    // A virtual office is arranged by Bizpole, so there's no office of the
+    // applicant's own to prove — skip the Company Documents section then.
+    const virtualOffice = A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes";
+    if (!virtualOffice) groups.push({ title: "Company Documents", items: ["Registered Office Address Proof", "NOC, if applicable", "Other Supporting Document"] });
+    return groups;
+  },
+});
+
+// ex-business → "Register another/new company" — original order, unchanged.
 export function newcoBusinessSteps(A) {
-  const s = [
-    { id: "type", title: "Business Type", fields: [
-      cardsField("businessType", "What type of business do you want to register?", BIZ_TYPES, { cols: 2, hint: "Not sure which is right? Use Help Me Choose below, or pick the closest — our advisor will confirm before filing." }),
-      { type: "helpChoose" },
-    ] },
-    { id: "name", title: "Business Name", fields: [
-      ynField("hasName", "Do you already have a preferred business/company name?"),
-      textField("name1", "Proposed Name 1", { showIf: (A) => A.hasName === "Yes", full: true }),
-      textField("name2", "Proposed Name 2", { showIf: (A) => A.hasName === "Yes", full: true, required: false }),
-      textField("name3", "Proposed Name 3", { showIf: (A) => A.hasName === "Yes", full: true, required: false }),
-      { type: "suggestNames", showIf: (A) => A.hasName === "No", full: true },
-    ] },
-    // Name availability (MCA + trademark) is checked on the Business Name step
-    // itself — see NameCheckBody in FlowRunner.jsx.
-    { id: "activity", title: "Business Activity", fields: [
-      cardsField("activity", "What does your business do?", ACTIVITIES, { cols: 3 }),
-      areaField("activityDesc", "Describe your business activity", { full: true, ph: "e.g. We design and sell custom industrial packaging to FMCG manufacturers." }),
-    ] },
-    { id: "objective", title: "AI Business Objective & NIC Code", type: "objective" },
-    { id: "address", title: "Business Address", fields: [
-      ...addressFields("", "Where will the business operate from?"),
-      ynField("isRegisteredAddress", "Is this the registered business address?", { full: true }),
-      // Not the registered address → either Bizpole arranges a virtual office
-      // (just the preferred location), or the applicant enters their separate
-      // registered office address below.
-      ynField("wantsVirtualOffice", "Are you looking for a virtual office?", { full: true, showIf: (A) => A.isRegisteredAddress === "No" }),
-      noteField(() => ({ variant: "info", body: "Our team will arrange a virtual office to use as your registered business address. Tell us where you'd like it." }), { full: true, showIf: (A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes" }),
-      pickField("vo_state", "Preferred State for Virtual Office", STATES, { showIf: (A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes" }),
-      textField("vo_city", "Preferred City for Virtual Office", { showIf: (A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes" }),
-      ...addressFields("reg", "Registered office address").map((f) => ({ ...f, ...(f.label && { label: "Registered " + f.label }), showIf:(A) => A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "No" })),
-      cardsField("propertyType", "Do you own or rent this property?", ["Owned", "Rented", "Leased", "Other"], { cols: 2, full: true, showIf: (A) => A.isRegisteredAddress === "Yes" || A.wantsVirtualOffice === "No" }),
-    ] },
-    { id: "owners", title: (ownerConfig(A)).label, type: "owners" },
-    docStep([], {
-      // One PAN/Aadhaar/Photograph/Address-proof upload slot per director/shareholder
-      // actually added on the Owners step (each in their own section), instead of one
-      // generic flat set for everyone.
-      groupedItems: (A, state) => {
-        const owners = (state && state.owners) || [];
-        const groups = owners.map((o, i) => {
-          const label = o.name || `Director ${i + 1}`;
-          const items = [`PAN – ${label}`, `Aadhaar / ID Proof – ${label}`, `Photograph – ${label}`, `Address Proof – ${label}`];
-          if (isMinor(o.dob)) items.push(`Nominee ID Proof – ${label}`);
-          return { title: label, items };
-        });
-        // A virtual office is arranged by Bizpole, so there's no office of the
-        // applicant's own to prove — skip the Company Documents section then.
-        const virtualOffice = A.isRegisteredAddress === "No" && A.wantsVirtualOffice === "Yes";
-        if (!virtualOffice) groups.push({ title: "Company Documents", items: ["Registered Office Address Proof", "NOC, if applicable", "Other Supporting Document"] });
-        return groups;
-      },
-    }),
-    addonStep(),
+  return [
+    bizTypeStep(), bizNameStep(), bizActivityStep(), bizObjectiveStep(), bizAddressStep(),
+    bizOwnersStep(A), bizDocsStep(), addonStep(),
   ];
-  return s;
+}
+
+// How many people the Directors step holds for Business Registration — the
+// count from Business Address (Private Limited / LLP), else null (no fixed count).
+export function fixedOwnerCount(A) {
+  if (!asksDirectorCount(A)) return null;
+  return parseInt(A.br_directorCount, 10) || null;
+}
+
+// "Start Your Business" Business Registration (FLOWS.newco) — its own list so
+// changes to this flow don't leak into ex-business.
+// Steps flagged `afterPayment` come after Payment (FlowRunner's allSteps):
+// Directors (every person complete — `allRequired`, slot count fixed by
+// fixedOwnerCount) and Documents (`optional` — may be finished with no uploads).
+export function bizRegSteps(A) {
+  return [
+    bizTypeStep(), bizNameStep(), bizActivityObjectiveStep(), bizRegAddressStep(A),
+    bizAddonsPackagesStep(),
+    { ...bizOwnersStep(A), afterPayment: true, allRequired: true },
+    { ...bizDocsStep(), afterPayment: true, optional: true },
+  ];
 }
 
 /* ---------------------------------------------------------------------------
@@ -780,7 +871,12 @@ export const FLOWS = {
      company", just addressed directly instead of via the existing-company menu. */
   "newco": {
     name: "Business Registration", code: "BR", price: 6999, govt: 2100, kind: "New Company",
-    steps: (A) => newcoBusinessSteps(A),
+    steps: (A) => bizRegSteps(A),
+    // Name Reservation / director additions — see bizRegExtraLines.
+    extraLines: (A) => bizRegExtraLines(A),
+    // Packages are picked on the "Additional Registrations & Packages" step,
+    // so no separate Packages step after Review.
+    packagesInline: true,
     // Which real service this bills depends on the business type chosen at
     // step 1 — see BUSINESS_TYPE_SERVICE_ID. Returns null for "Partnership
     // Firm" / "Other" (no matching catalog entry yet).

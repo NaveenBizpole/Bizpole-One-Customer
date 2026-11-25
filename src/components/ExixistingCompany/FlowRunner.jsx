@@ -42,7 +42,7 @@ import {
   recommendBusinessType, suggestedBusinessNames, suggestAlternatives,
   generateBusinessObjective, suggestedNicCodes, tmClassMatches,
   selectedNiceClass, tmRiskLevel, NICE_CLASSES,
-  TM_MARK_TYPES, TM_LANGUAGES, newTmMark, tmMarks, tmMarkLabel, tmGovtFee,
+  TM_MARK_TYPES, TM_LANGUAGES, newTmMark, tmMarks, tmMarkLabel, tmGovtFee, fixedOwnerCount,
 } from "./existingCompanyData";
 import {
   changeKind, loadCurrent, prefillAnswers, currentRows, changedRows, directorSummary,
@@ -281,7 +281,11 @@ function runCustomerCompanySync(state, A, bump, flow) {
   if (state.leadContact.direct && matchExistingCompany(state, companyName)) { bump(); return Promise.resolve(); }
   // Directors/Shareholders entered on this same step — each maps to a
   // company_directors row (see createCustomerAndCompanyOnly on the backend).
-  const directors = state.owners.map((o) => ({
+  // Nameless cards are skipped — e.g. Business Registration creates the
+  // Company before its (after-payment) Directors step is filled in, and the
+  // backend would otherwise insert a blank company_directors row; directors
+  // added later are saved by resaveCompanyEdits.
+  const directors = state.owners.filter((o) => String(o.name || "").trim()).map((o) => ({
     name: o.name || null,
     dob: o.dob || null,
     pan: o.pan || null,
@@ -631,6 +635,12 @@ function resaveApplication(flow, state, A) {
   return run;
 }
 
+// First step that needs the Lead → Customer/Company → Deal in place before it's
+// entered: Documents, or an earlier step offering "Skip to dashboard"
+// (skipToDashboard) — that skip is offered from there on. -1 when neither.
+function dealGateIndex(steps) {
+  return steps.findIndex((s) => s.type === "docs" || s.skipToDashboard);
+}
 function contentSteps(flowId, A) {
   const flow = FLOWS[flowId];
   if (!flow) return [];
@@ -654,10 +664,15 @@ function allSteps(flowId, A) {
     ]);
   }
   if (mode) return contentSteps(flowId, A).concat([{ id: "__success", title: "Sent", type: "success" }]);
-  return contentSteps(flowId, A).concat([
+  // Steps flagged afterPayment (Business Registration's Directors / Documents)
+  // follow Payment instead of preceding Review.
+  const content = contentSteps(flowId, A);
+  return content.filter((s) => !s.afterPayment).concat([
     { id: "__review", title: "Review", type: "review" },
-    { id: "__packages", title: "Packages", type: "packages" },
+    // Business Registration picks its package on its own add-ons step.
+    ...(FLOWS[flowId].packagesInline ? [] : [{ id: "__packages", title: "Packages", type: "packages" }]),
     { id: "__payment", title: "Payment", type: "payment" },
+    ...content.filter((s) => s.afterPayment),
     { id: "__success", title: "Submitted", type: "success" },
   ]);
 }
@@ -680,7 +695,12 @@ function validateStep(step, A, state) {
   if (step.type === "owners") {
     const cfg = ownerConfig(A);
     const n = state.owners.length;
+    // Business Registration (after payment): exactly the number of directors
+    // given on Business Address (when one was asked), everyone complete.
+    const fixed = step.allRequired ? fixedOwnerCount(A) : null;
     if (!n) errors.__owners = `Add at least ${cfg.minCount === 1 ? "1 person" : cfg.minCount + " people"}`;
+    else if (fixed && n !== fixed) errors.__owners = `Add details for all ${fixed} — currently ${n}.`;
+    else if (step.allRequired && n < cfg.minCount) errors.__owners = `${cfg.label} needs at least ${cfg.minCount}. Currently: ${n}.`;
     // Fewer than the minimum is fine for now — the rest can be added later
     // (OwnersBody shows a reminder instead of blocking Continue).
     else if (cfg.maxCount && n > cfg.maxCount) errors.__owners = `${cfg.label} allows at most ${cfg.maxCount}. Currently: ${n}.`;
@@ -689,7 +709,8 @@ function validateStep(step, A, state) {
       const minor = isMinor(o.dob);
       // Only the first person must be complete now — the others can be filled
       // in later; whatever is entered for them is still format-checked.
-      const req = i === 0;
+      // (allRequired: every person must be complete.)
+      const req = i === 0 || !!step.allRequired;
       fields.forEach((f) => {
         // A minor often has no PAN/email/mobile of their own yet — their nominee/
         // guardian's details (validated separately below) cover that instead.
@@ -765,7 +786,8 @@ function validateStep(step, A, state) {
   } else if (step.type === "docs") {
     const items = docItems(step, A, state);
     const any = items.some((it) => state.documents[it]);
-    if (!any) errors.__docs = "Upload at least one document to continue";
+    // `optional` (Business Registration, after payment): may finish with none.
+    if (!any && !step.optional) errors.__docs = "Upload at least one document to continue";
     // Every logo application needs its own artwork (see tmLogoDocLabel).
     const missingLogo = items.find((it) => it.startsWith("Logo Artwork") && !state.documents[it]);
     if (missingLogo) {
@@ -790,6 +812,8 @@ function validateStep(step, A, state) {
     if (!lf.state) errors.lead_state = "Please select your state.";
     if (!lf.language) errors.lead_language = "Please select your preferred language.";
   } else if (step.type === "objective") {
+    // Merged "Business Activity & Objective" step carries the activity fields too.
+    if (step.fields) validateFields(step, A, errors);
     if (!String(A.br_objective || "").trim()) errors.br_objective = "Please enter the business objective to continue";
     if (!A.br_nicCode) errors.br_nicCode = "Select a NIC code to continue";
   } else if (step.type === "tmMarks") {
@@ -1089,6 +1113,15 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
   const step = steps[stepIndex];
   // Furthest step reached so far — the sidebar can jump forward up to it.
   if (!(state.maxStepIndex >= stepIndex)) state.maxStepIndex = stepIndex;
+  // Once paid (Business Registration), only the after-payment steps can be
+  // visited — everything before is on the paid quote.
+  const firstEditableIndex = state.paidInfo ? Math.max(0, steps.findIndex((s) => s.afterPayment)) : 0;
+  const canGoBack = !(state.paidInfo && stepIndex <= firstEditableIndex);
+  // Last after-payment step (Business Registration's Documents): Continue
+  // submits the application — uploads there are optional.
+  const finishLabel = state.paidInfo && step?.afterPayment && steps[stepIndex + 1]?.type === "success"
+    ? (step.type === "docs" && !docItems(step, A, state).some((it) => state.documents[it]) ? "Skip uploads & Submit" : "Submit Application")
+    : null;
   // ...or further, to any step whose earlier steps are all already filled in
   // (validateStep passes). This stops at a step whose Continue does real work
   // (Lead / Customer / Company / Deal creation) unless it was already passed, so
@@ -1116,8 +1149,10 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
   // right now — they can always come back and finish this application later.
   // Every step before Documents is already guaranteed valid by this point,
   // since goNext() never advances past a step that fails validateStep().
-  const docsIndex = steps.findIndex((s) => s.type === "docs");
-  const canSkipToDashboard = !!onSkip && docsIndex !== -1 && stepIndex >= docsIndex;
+  // A step can bring this forward with `skipToDashboard` (Business
+  // Registration's "Additional Registrations & Packages") — whichever comes first.
+  const skipFromIndex = dealGateIndex(steps);
+  const canSkipToDashboard = !!onSkip && skipFromIndex !== -1 && stepIndex >= skipFromIndex;
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1169,6 +1204,32 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
       .finally(() => { prefillInFlight.current = false; bump(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [A.ex_brandNew]);
+
+  // Business Registration's Directors step (after payment): exactly as many
+  // cards as directors given on Business Address, and what was entered before
+  // filled in — the director's name from Business Address, and the applicant's
+  // own email / mobile when they're that director. Never overwrites a value.
+  useEffect(() => {
+    if (step?.type !== "owners" || !step.allRequired) return;
+    const fixed = fixedOwnerCount(A);
+    const blank = (o) => !o || Object.entries(o).every(([k, v]) => k.startsWith("__") || (v && typeof v === "object" ? true : !String(v ?? "").trim()));
+    let changed = false;
+    if (fixed) {
+      while (state.owners.length < fixed) { state.owners.push(newOwner()); changed = true; }
+      while (state.owners.length > fixed && blank(state.owners[state.owners.length - 1])) { state.owners.pop(); changed = true; }
+    }
+    const first = state.owners[0];
+    const name = String(A.br_directorName || "").trim();
+    if (first && name && !String(first.name || "").trim()) { first.name = name; changed = true; }
+    const c = state.leadContact;
+    const same = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+    if (first && c && first.name && same(c.name, first.name)) {
+      if (!first.email && c.email) { first.email = c.email; changed = true; }
+      if (!first.mobile && c.mobile) { first.mobile = c.mobile; changed = true; }
+    }
+    if (changed) bump();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step?.type, step?.allRequired, A.br_directorCount]);
 
   // Same owners (or some in common) → start the Owners step with the existing
   // company's directors, if the customer hasn't entered anyone yet. Once only.
@@ -1399,9 +1460,16 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
     prefillAuthPerson();
     const toNext = () => {
       state.stepIndex = Math.min(state.stepIndex + 1, steps.length - 1);
+      // Last after-payment step done (Business Registration) — now it's submitted.
+      if (steps[state.stepIndex]?.type === "success" && state.paidInfo && !state.submitted) {
+        state.submitted = state.paidInfo;
+        saveAnswers(flow, state, A);
+      }
       bump();
     };
-    if (steps[state.stepIndex + 1]?.type !== "docs" || state.dealId) {
+    // Same for the first step that offers "Skip to dashboard" (see
+    // dealGateIndex), so a skipped application is already a Deal.
+    if (state.stepIndex + 1 !== dealGateIndex(steps) || state.dealId) {
       toNext();
       return;
     }
@@ -1455,6 +1523,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
   }
   function goBack() {
     if (stepIndex === 0) { cancelApplication(); return; }
+    if (stepIndex <= firstEditableIndex) return; // paid — nothing before Directors to go back to
     if (needsSignIn()) { withSignIn(goBack); return; }
     errorsRef.current = {};
     state.stepIndex -= 1;
@@ -1467,6 +1536,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
   // guarded against duplicates), so nothing else needs re-running.
   function jumpTo(i) {
     if (i === stepIndex) return;
+    if (i < firstEditableIndex) return; // paid — the quote's answers are final
     if (needsSignIn()) { withSignIn(() => jumpTo(i)); return; }
     if (i > stepIndex) {
       if (i > reachedIndex) return;
@@ -1500,8 +1570,13 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
   const unconfirmedSuccess =
     step?.type === "success" && !!state.submitted &&
     !state.submitted.callback && !state.submitted.direct && !state.submitted.paid;
+  // A call-back request ends on "Submitted" too; with after-payment steps
+  // (Business Registration) keep checking, so once that quote is paid,
+  // reopening the application continues at Directors.
+  const callbackAwaitingPayment =
+    step?.type === "success" && !!state.submitted?.callback && !state.paidInfo && steps.some((t) => t.afterPayment);
   const shouldCheckPayment =
-    !!state.quoteId && !!state.companyId && (step?.type === "payment" || unconfirmedSuccess);
+    !!state.quoteId && !!state.companyId && (step?.type === "payment" || unconfirmedSuccess || callbackAwaitingPayment);
   async function checkQuotePayment() {
     const s = appRef.current;
     if (checkingPaymentRef.current) return;
@@ -1510,13 +1585,25 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
       const { paid, received } = await getQuotePaymentStatus({ companyId: s.companyId, quoteId: s.quoteId });
       const all = allSteps(s.flowId, s.answers);
       if (paid) {
-        if (s.submitted?.paid) return;
-        s.submitted = {
+        if (s.submitted?.paid || s.paidInfo) return;
+        const info = {
           id: s.applicationId, service: s.serviceType, date: today(),
           amount: rupee(received || 0), paid: true,
         };
         s.awaitingPayment = null;
-        s.stepIndex = all.length - 1;
+        // Business Registration: Directors / Documents still to come after
+        // payment — continue there; "Submitted" once they're done (advance()).
+        // Not marked submitted meanwhile, so the dashboard still lists it.
+        const postIdx = all.findIndex((t) => t.afterPayment);
+        if (postIdx !== -1) {
+          s.paidInfo = info;
+          s.submitted = null; // e.g. a call-back request, paid since
+          s.stepIndex = postIdx;
+          s.maxStepIndex = postIdx;
+        } else {
+          s.submitted = info;
+          s.stepIndex = all.length - 1;
+        }
         bump();
       } else if (s.submitted && !s.submitted.callback && !s.submitted.direct && !s.submitted.paid) {
         const idx = all.findIndex((t) => t.type === "payment");
@@ -1606,7 +1693,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
                 </div>
               </div>
               <ul className="mt-5 space-y-1 hidden lg:block flex-1">
-                {steps.slice(0, -1).map((s, i) => { const current = i === stepIndex; const canJump = !current && i <= reachedIndex; const done = canJump && i < reachedIndex; return (
+                {steps.slice(0, -1).map((s, i) => { const current = i === stepIndex; const canJump = !current && i <= reachedIndex && i >= firstEditableIndex; const done = (canJump || i < firstEditableIndex) && i < reachedIndex; return (
                   <li key={s.id}>
                     <button type="button" disabled={!canJump} onClick={() => jumpTo(i)}
                       className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left text-[13px] transition ${
@@ -1643,7 +1730,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
                 </div>
               </div>
               <ul className="mt-4 space-y-0.5 hidden lg:block">
-                {steps.slice(0, -1).map((s, i) => { const canJump = i !== stepIndex && i <= reachedIndex; const done = canJump && i < reachedIndex; return (
+                {steps.slice(0, -1).map((s, i) => { const canJump = i !== stepIndex && i <= reachedIndex && i >= firstEditableIndex; const done = (canJump || i < firstEditableIndex) && i < reachedIndex; return (
                   <li key={s.id} className={`flex items-center gap-2.5 py-1.5 text-sm ${i === stepIndex ? "text-blue-700 font-semibold" : canJump ? "text-gray-800" : "text-gray-400"}`}>
                     <span className={`flex-none w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${
                       done ? "bg-green-500 border-green-500 text-white" : i === stepIndex ? "border-blue-500 text-blue-600" : "border-gray-200"
@@ -1714,15 +1801,28 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
             {callbackNoticeOpen && (
               <CallbackAlreadyRequestedModal callAt={state.callbacksDone?.[step.type]?.callAt} onClose={() => setCallbackNoticeOpen(false)} />
             )}
-            {step.type === "owners" && <OwnersBody A={A} state={state} errors={errorsRef.current} bump={bump} />}
+            {state.paidInfo && step.afterPayment && stepIndex === firstEditableIndex && (
+              <div className="mb-4"><Note variant="info" title="Payment received — thank you!" body="Just a couple of steps left: add the director details below, then upload documents (you can upload them later too)." /></div>
+            )}
+            {step.type === "owners" && <OwnersBody A={A} state={state} errors={errorsRef.current} bump={bump} step={step} />}
+            {step.type === "docs" && step.optional && (
+              <p className="text-xs text-gray-500 mb-3">Uploads are optional here — anything you skip can be uploaded later from your dashboard.</p>
+            )}
             {step.type === "docs" && <DocsBody step={step} A={A} state={state} errors={errorsRef.current} bump={bump} />}
-            {step.type === "objective" && <ObjectiveBody A={A} errors={errorsRef.current} setAnswer={setAnswer} />}
+            {step.type === "objective" && step.fields && <FieldsBody step={step} A={A} errors={errorsRef.current} setAnswer={setAnswer} state={state} bump={bump} liveStateNames={liveStateNames} />}
+            {step.type === "objective" && <ObjectiveBody A={A} errors={errorsRef.current} setAnswer={setAnswer} inline={!!step.fields} />}
             {step.type === "aiClassFinder" && <AiClassFinderBody A={A} setAnswer={setAnswer} state={state} bump={bump} />}
             {step.type === "tmClassConfirm" && <TmClassConfirmBody A={A} onChangeClass={() => { state.stepIndex = steps.findIndex((s) => s.id === "recommend"); bump(); }} />}
             {step.type === "tmSearch" && <TmSearchBody flow={flow} step={step} A={A} state={state} errors={errorsRef.current} setAnswer={setAnswer} bump={bump} liveStateNames={liveStateNames} />}
             {step.type === "tmResults" && <TmResultsBody A={A} state={state} />}
             {step.type === "tmMarks" && <TmMarksBody flow={flow} A={A} state={state} errors={errorsRef.current} setAnswer={setAnswer} bump={bump} />}
             {!step.type && <FieldsBody step={step} A={A} errors={errorsRef.current} setAnswer={setAnswer} state={state} bump={bump} liveStateNames={liveStateNames} />}
+            {step.type === "addonsPackages" && (
+              <>
+                <FieldsBody step={step} A={A} errors={errorsRef.current} setAnswer={setAnswer} state={state} bump={bump} liveStateNames={liveStateNames} />
+                <div className="mt-6 pt-5 border-t border-gray-100"><PackagesBody A={A} state={state} bump={bump} embedded /></div>
+              </>
+            )}
             {!step.type && directMode && <ErrorText msg={errorsRef.current.__save} />}
             {/* Business Name: name availability (MCA + trademark) is checked
                 right here, under the proposed names. */}
@@ -1733,9 +1833,11 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
             {step.type !== "payment" && step.type !== "packages" && nc && (
               <div className="flex items-center justify-between gap-3 mt-auto pt-7">
                 <div className="pt-4 w-full flex items-center justify-between gap-3 border-t border-gray-100">
-                  <button onClick={goBack} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
-                    <ArrowLeft className="w-4 h-4" /> Back
-                  </button>
+                  {canGoBack ? (
+                    <button onClick={goBack} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+                      <ArrowLeft className="w-4 h-4" /> Back
+                    </button>
+                  ) : <span />}
                   <div className="flex items-center gap-3">
                     {canSkipToDashboard && (
                       <button onClick={skipToDashboard} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50">
@@ -1743,7 +1845,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
                       </button>
                     )}
                     <button onClick={goNext} disabled={leadSaving} className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-semibold text-gray-900 bg-[#F5C518] hover:bg-[#EAB90C] disabled:bg-gray-100 disabled:text-gray-400">
-                      {leadSaving ? "Saving…" : directMode === "advisor" && step.id === "advice" ? "Send Request" : step.type === "review" ? (directMode ? (changeKind(A.change_what) === "other" ? "Send Request" : "Save Changes") : "Proceed to Payment") : "Continue"}
+                      {leadSaving ? "Saving…" : directMode === "advisor" && step.id === "advice" ? "Send Request" : step.type === "review" ? (directMode ? (changeKind(A.change_what) === "other" ? "Send Request" : "Save Changes") : "Proceed to Payment") : finishLabel || "Continue"}
                       {!leadSaving && <ArrowRight className="w-4 h-4" />}
                     </button>
                   </div>
@@ -1752,7 +1854,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
             )}
             {step.type !== "payment" && step.type !== "packages" && !nc && (
               <div className="flex items-center justify-between gap-3 mt-7 pt-5 border-t border-gray-100">
-                <button onClick={goBack} className="px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-50">← Back</button>
+                {canGoBack ? <button onClick={goBack} className="px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-50">← Back</button> : <span />}
                 <div className="flex items-center gap-3">
                   {canSkipToDashboard && (
                     <button onClick={skipToDashboard} className="px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-500 hover:bg-gray-50">
@@ -1760,7 +1862,7 @@ export default function FlowRunner({ flowId, initialSet, onExit, onComplete, onS
                     </button>
                   )}
                   <button onClick={goNext} disabled={leadSaving} className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60">
-                    {leadSaving ? "Saving…" : directMode === "advisor" && step.id === "advice" ? "Send Request" : step.type === "review" ? (directMode ? (changeKind(A.change_what) === "other" ? "Send Request" : "Save Changes") : "Proceed to Payment →") : "Continue →"}
+                    {leadSaving ? "Saving…" : directMode === "advisor" && step.id === "advice" ? "Send Request" : step.type === "review" ? (directMode ? (changeKind(A.change_what) === "other" ? "Send Request" : "Save Changes") : "Proceed to Payment →") : finishLabel ? finishLabel + " →" : "Continue →"}
                   </button>
                 </div>
               </div>
@@ -3307,11 +3409,15 @@ const GST_STATE_CODES = {
 /* ---------------------------------------------------------------------------
    Owners / Directors repeater
 --------------------------------------------------------------------------- */
-function OwnersBody({ A, state, errors, bump }) {
+function OwnersBody({ A, state, errors, bump, step }) {
+  // Business Registration (after payment): every person required, and when a
+  // director count was given on Business Address, exactly that many cards.
+  const allRequired = !!step?.allRequired;
+  const fixed = allRequired ? fixedOwnerCount(A) : null;
   const cfg = ownerConfig(A);
   const fields = ownerBaseFields(cfg);
   const n = state.owners.length;
-  const capReached = !!(cfg.maxCount && n >= cfg.maxCount);
+  const capReached = !!fixed || !!(cfg.maxCount && n >= cfg.maxCount);
   const primaryLabel = cfg.label.split(" / ")[0];
   const round2 = (x) => Math.round(x * 100) / 100;
   const shareTotal = round2(state.owners.reduce((sum, o) => sum + (Number(o.shareholding) || 0), 0));
@@ -3341,7 +3447,8 @@ function OwnersBody({ A, state, errors, bump }) {
         <div className="font-semibold text-sm text-gray-800">{cfg.label}</div>
         <p className="text-xs text-gray-500 mt-1">{cfg.hint}</p>
         <ErrorText msg={errors.__owners} />
-        {n > 0 && n < cfg.minCount && (
+        {fixed && <p className="text-xs text-gray-600 mt-1">Add complete details for all {fixed}, as given on Business Address.</p>}
+        {!allRequired && n > 0 && n < cfg.minCount && (
           <p className="text-xs text-amber-700 mt-1">{cfg.label} needs at least {cfg.minCount} — you can continue now and add the remaining {cfg.minCount - n} later.</p>
         )}
       </div>
@@ -3350,7 +3457,7 @@ function OwnersBody({ A, state, errors, bump }) {
         {state.owners.map((o, i) => {
           const minor = isMinor(o.dob);
           // Only the first person is required now; the rest can be filled in later.
-          const star = i === 0 ? <span className="text-red-500">*</span> : null;
+          const star = i === 0 || allRequired ? <span className="text-red-500">*</span> : null;
           return (
           <div key={i} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
             <div className="flex items-center justify-between mb-3">
@@ -3358,9 +3465,9 @@ function OwnersBody({ A, state, errors, bump }) {
                 <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center">{i + 1}</span>
                 {o.name || `${primaryLabel} ${i + 1}`}
               </b>
-              {cfg.maxCount !== 1 && n > 1 && <button onClick={() => removeOwner(i)} className="text-xs text-red-500 hover:underline">Remove</button>}
+              {!fixed && cfg.maxCount !== 1 && n > 1 && <button onClick={() => removeOwner(i)} className="text-xs text-red-500 hover:underline">Remove</button>}
             </div>
-            {i > 0 && <p className="text-xs text-gray-500 -mt-1 mb-3">You can add these details now or later — only the first {primaryLabel.toLowerCase()} must be complete to continue.</p>}
+            {i > 0 && !allRequired && <p className="text-xs text-gray-500 -mt-1 mb-3">You can add these details now or later — only the first {primaryLabel.toLowerCase()} must be complete to continue.</p>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {fields.map((f) => {
                 const optional = minor && MINOR_OPTIONAL_FIELDS.includes(f.k);
@@ -3932,25 +4039,38 @@ function NameCheckBody({ A, state, errors, setAnswer, bump }) {
 /* ---------------------------------------------------------------------------
    AI Business Objective & NIC Code step
 --------------------------------------------------------------------------- */
-function ObjectiveBody({ A, errors, setAnswer }) {
-  if (!A.activityDesc) return <Note variant="warn" body="Go back and describe your business activity first — we'll turn it into a professional objective here." />;
-  if (!A.br_objective) A.br_objective = generateBusinessObjective(A);
+// `inline` — rendered under the activity fields on the same page (Business
+// Registration's merged step). The objective and NIC code then keep following
+// what's typed/picked above until the applicant edits/picks them by hand
+// (br_objectiveEdited / br_nicPicked), instead of being frozen on first render.
+function ObjectiveBody({ A, errors, setAnswer, inline = false }) {
+  if (!A.activityDesc) {
+    return inline
+      ? <div className="mt-5"><Note variant="info" body="Describe your business activity above — we'll turn it into a professional business objective and suggest a NIC code here." /><ErrorText msg={errors.br_objective} /></div>
+      : <Note variant="warn" body="Go back and describe your business activity first — we'll turn it into a professional objective here." />;
+  }
+  if (!A.br_objective || (inline && !A.br_objectiveEdited)) A.br_objective = generateBusinessObjective(A);
   const list = suggestedNicCodes(A);
-  if (!A.br_nicCode && list.length) A.br_nicCode = list[0].code;
+  // Inline: follow the top suggestion until one is picked, and drop a picked
+  // code that no longer belongs to the (changed) activity's list.
+  if (list.length && (!A.br_nicCode || (inline && (!A.br_nicPicked || !list.some((c) => c.code === A.br_nicCode))))) {
+    A.br_nicCode = list[0].code;
+    A.br_nicPicked = false;
+  }
   return (
-    <div>
+    <div className={inline ? "mt-6 pt-5 border-t border-gray-100" : ""}>
       <div className="font-semibold text-sm text-gray-800">AI-generated business objective</div>
-      <p className="text-xs text-gray-500 mb-2">Based on what you told us in the previous step. Edit freely, or regenerate from scratch.</p>
-      <textarea rows={4} className={inputCls()} value={A.br_objective} onChange={(e) => setAnswer("br_objective", e.target.value)} />
+      <p className="text-xs text-gray-500 mb-2">{inline ? "Based on the activity you described above." : "Based on what you told us in the previous step."} Edit freely, or regenerate from scratch.</p>
+      <textarea rows={4} className={inputCls()} value={A.br_objective} onChange={(e) => { A.br_objectiveEdited = true; setAnswer("br_objective", e.target.value); }} />
       <div className="flex gap-2 flex-wrap mt-2">
-        <button type="button" onClick={() => setAnswer("br_objective", generateBusinessObjective(A))} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-semibold">Rephrase Again</button>
+        <button type="button" onClick={() => { A.br_objectiveEdited = false; setAnswer("br_objective", generateBusinessObjective(A)); }} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-semibold">Rephrase Again</button>
       </div>
       <ErrorText msg={errors.br_objective} />
       <div className="font-semibold text-sm text-gray-800 mt-5">Suggested NIC Code</div>
       <p className="text-xs text-gray-500 mb-2">Pick the code that best matches your business activity — our team verifies this before filing.</p>
       <div className="flex flex-col gap-2">
         {list.map((c) => (
-          <OptionButton key={c.code} selected={A.br_nicCode === c.code} onClick={() => setAnswer("br_nicCode", c.code)}>
+          <OptionButton key={c.code} selected={A.br_nicCode === c.code} onClick={() => { A.br_nicPicked = true; setAnswer("br_nicCode", c.code); }}>
             NIC {c.code}<span className="block font-normal text-xs text-gray-500 mt-0.5">{c.desc}</span>
           </OptionButton>
         ))}
@@ -4307,7 +4427,9 @@ function TmMarksBody({ flow, A, state, errors, setAnswer, bump }) {
    Review / Payment / Success
 --------------------------------------------------------------------------- */
 function reviewRows(flowId, A, state) {
-  const steps = contentSteps(flowId, A);
+  // After-payment steps (Directors / Documents) aren't filled in yet at
+  // Review — leave them out until payment is in (state.paidInfo).
+  const steps = contentSteps(flowId, A).filter((s) => !s.afterPayment || state.paidInfo);
   const groups = [];
   steps.forEach((s, i) => {
     if (s.id === "recommend" || s.id === "search") return;
@@ -4327,6 +4449,15 @@ function reviewRows(flowId, A, state) {
       });
       if (!rows.length) rows.push([s.title, "None added"]);
     } else if (s.type === "objective") {
+      // Merged "Business Activity & Objective" step — its activity answers first.
+      if (s.fields) {
+        visibleFields(s, A).forEach((f) => {
+          if (f.type === "note" || !f.k) return;
+          const v = A[f.k];
+          if (v == null || String(v).trim() === "") return;
+          rows.push([f.label || f.q, A[f.k] === "Other" && A[f.k + "__other"] ? "Other — " + A[f.k + "__other"] : v]);
+        });
+      }
       rows.push(["Business objective", A.br_objective || "—"]);
       rows.push(["NIC Code", A.br_nicCode || "Not selected"]);
     } else if (s.type === "docs") {
@@ -4364,6 +4495,10 @@ function reviewRows(flowId, A, state) {
         rows.push(["Name checked", ncTarget(A) || "—"]);
         rows.push(["Availability status", statusLabel]);
       }
+      // Business Registration's merged add-ons step: the package picked there.
+      if (s.type === "addonsPackages") {
+        rows.push(["Package", A.selectedPackage ? `${A.selectedPackage.name} — ${rupee(A.selectedPackage.price)} / year` : "None selected"]);
+      }
       if (!rows.length) rows.push(["—", "Nothing entered"]);
     }
     groups.push({ title: s.title, index: i, rows });
@@ -4373,9 +4508,11 @@ function reviewRows(flowId, A, state) {
 function ReviewBody({ flowId, A, state, errors, onConfirm, onJump }) {
   const g = reviewRows(flowId, A, state);
   const applicant = [
-    ["Name", A.auth_name || A.msme_applicant || A.tm_ownerName || (state.owners[0] && state.owners[0].name) || A.ex_contact || "—"],
-    ["Email", A.auth_email || A.msme_email || A.tm_ownerEmail || A.br_contactEmail || (state.owners[0] && state.owners[0].email) || "—"],
-    ["Phone", A.auth_mobile || A.msme_mobile || A.tm_ownerMobile || A.br_contactMobile || A.ex_mobile || (state.owners[0] && state.owners[0].mobile) || "—"],
+    // Last fallback: the applicant's own contact (Business Registration's
+    // Directors step now comes after payment, so owners[0] is empty at Review).
+    ["Name", A.auth_name || A.msme_applicant || A.tm_ownerName || (state.owners[0] && state.owners[0].name) || A.ex_contact || state.leadContact?.name || "—"],
+    ["Email", A.auth_email || A.msme_email || A.tm_ownerEmail || A.br_contactEmail || (state.owners[0] && state.owners[0].email) || state.leadContact?.email || "—"],
+    ["Phone", A.auth_mobile || A.msme_mobile || A.tm_ownerMobile || A.br_contactMobile || A.ex_mobile || (state.owners[0] && state.owners[0].mobile) || state.leadContact?.mobile || "—"],
   ];
   const addons = Array.isArray(A.additionalServices) ? A.additionalServices : [];
   const flow = FLOWS[flowId];
@@ -4447,7 +4584,8 @@ async function ensureMasterPrices(flow, A, state) {
   if (stateId == null) return;
   const mainId = typeof flow.serviceIdFor === "function" ? flow.serviceIdFor(A) : flow.serviceId || null;
   const addons = Array.isArray(A?.additionalServices) ? A.additionalServices : [];
-  const ids = [...new Set([mainId, ...addons.map((a) => ADDON_SERVICE_ID[a])].filter(Boolean))];
+  const extraIds = (flow.extraLines?.(A || {}) || []).map((l) => l.serviceId);
+  const ids = [...new Set([mainId, ...extraIds, ...addons.map((a) => ADDON_SERVICE_ID[a])].filter(Boolean))];
   await Promise.all(ids.map(async (sid) => {
     const key = `${sid}:${stateId}`;
     if (masterPriceCache.has(key)) return;
@@ -4488,8 +4626,15 @@ function feeLines(flow, A, state) {
   const serviceId = typeof flow.serviceIdFor === "function" ? flow.serviceIdFor(A) : flow.serviceId || null;
   const addons = Array.isArray(A.additionalServices) ? A.additionalServices : [];
   const [mainProfessional, mainGovt] = pricedLine(serviceId, state, flow.price, flow.govt);
+  // Automatic lines the flow adds itself (Business Registration: Name
+  // Reservation, director additions) — between the main service and add-ons.
+  const extras = (flow.extraLines?.(A) || []).map((x) => {
+    const [professional, govt] = pricedLine(x.serviceId, state, x.fallbackProfessional, x.fallbackGovt);
+    return { ...line(x.name, x.serviceId, professional, govt), group: x.group };
+  });
   const lines = [
     line(state?.serviceType || flow.name, serviceId, mainProfessional, mainGovt),
+    ...extras,
     ...addons.map((a) => {
       const addonId = ADDON_SERVICE_ID[a] || null;
       const [professional, govt] = pricedLine(addonId, state, ADDON_PRICE[a] || 999, 0);
@@ -4497,26 +4642,39 @@ function feeLines(flow, A, state) {
     }),
   ];
   const sum = (k) => lines.reduce((s, l) => s + l[k], 0);
-  const addonLines = lines.slice(1).map((l) => [l.name, l.professionalFee]);
+  // Extras grouped for display: [label, professional fee] — repeated lines
+  // (one per extra director) collapse into one "× n" row.
+  const extraGroups = [];
+  extras.forEach((l) => {
+    const g = extraGroups.find((x) => x.group === l.group);
+    if (g) { g.count += 1; g.amount += l.professionalFee; } else extraGroups.push({ group: l.group, count: 1, amount: l.professionalFee });
+  });
+  const extraLines = extraGroups.map((g) => [g.count > 1 ? `${g.group} × ${g.count}` : g.group, g.amount]);
+  const addonLines = lines.slice(1 + extras.length).map((l) => [l.name, l.professionalFee]);
   // Client pays this service's govt. fee directly (ServiceMaster
   // IsGovtFeePaidByClient, same as the staff Quote/Deal screens) → it's not
   // billed, so it's left out of the total. The lines still carry it: the
   // server strips it from the Quote/Deal itself and records it as
   // ClientPaidGovtFee — zeroing it here too would lose that amount.
   const clientPaidGovt = serviceId && state?.govtPaidByClient?.[serviceId] ? Number(mainGovt) || 0 : 0;
+  // Same for the automatic lines (e.g. Name Reservation is client-paid in the master).
+  const extrasClientPaid = extras.reduce((s, l) => s + (l.serviceId && state?.govtPaidByClient?.[l.serviceId] ? Number(l.governmentFee) || 0 : 0), 0);
+  const extrasGovt = extras.reduce((s, l) => s + (Number(l.governmentFee) || 0), 0);
   return {
     lines,
     service: mainProfessional,
+    extraLines,
     addonLines,
     addonTotal: addonLines.reduce((s, l) => s + l[1], 0),
-    govt: mainGovt - clientPaidGovt,
-    clientPaidGovt,
+    // Billed govt. fees (main + automatic lines); client-paid parts excluded.
+    govt: mainGovt + extrasGovt - clientPaidGovt - extrasClientPaid,
+    clientPaidGovt: clientPaidGovt + extrasClientPaid,
     gst: sum("gstAmount"),
     cgst: sum("cgst"),
     sgst: sum("sgst"),
     igst: sum("igst"),
     gstEligible,
-    total: sum("total") - clientPaidGovt,
+    total: sum("total") - clientPaidGovt - extrasClientPaid,
   };
 }
 
@@ -4531,12 +4689,15 @@ async function ensureGstInfo(state) {
 // Load (once per service) whether the client pays the main service's govt.
 // fee directly — ServiceMaster.IsGovtFeePaidByClient, see feeLines(). Kept by
 // ServiceID since the main service can change with the answers (business type).
+// Also loads it for the flow's automatic lines (flow.extraLines).
 async function ensureGovtFeeFlag(flow, A, state) {
-  const serviceId = typeof flow.serviceIdFor === "function" ? flow.serviceIdFor(A) : flow.serviceId || null;
-  if (!serviceId) return;
-  if (state.govtPaidByClient && serviceId in state.govtPaidByClient) return;
-  const res = await getServiceById({ ServiceId: serviceId });
-  state.govtPaidByClient = { ...state.govtPaidByClient, [serviceId]: Number(res?.data?.IsGovtFeePaidByClient) === 1 };
+  const mainId = typeof flow.serviceIdFor === "function" ? flow.serviceIdFor(A) : flow.serviceId || null;
+  const ids = [...new Set([mainId, ...(flow.extraLines?.(A || {}) || []).map((l) => l.serviceId)].filter(Boolean))];
+  await Promise.all(ids.map(async (serviceId) => {
+    if (state.govtPaidByClient && serviceId in state.govtPaidByClient) return;
+    const res = await getServiceById({ ServiceId: serviceId });
+    state.govtPaidByClient = { ...state.govtPaidByClient, [serviceId]: Number(res?.data?.IsGovtFeePaidByClient) === 1 };
+  }));
 }
 
 // Two ways to finish: pay online (the quote page offers UPI / card / net
@@ -4575,7 +4736,10 @@ function packageYearlyTotal(p, lines = packageLines(p)) {
   return sum > 0 ? sum : Number(p.YearlyMRP || p.price || 0);
 }
 
-function PackagesBody({ A, state, bump, onPay, onCallback, onBack }) {
+// `embedded` — shown under the add-ons on Business Registration's "Additional
+// Registrations & Packages" step: just the optional package picker, the
+// step's own Continue moves on (no Pay / Request a Call / Back here).
+function PackagesBody({ A, state, bump, onPay, onCallback, onBack, embedded = false }) {
   const [plans, setPlans] = useState(null); // null = loading
   const wanted = A.businessType || state.serviceType;
   useEffect(() => {
@@ -4605,11 +4769,15 @@ function PackagesBody({ A, state, bump, onPay, onCallback, onBack }) {
   return (
     <div>
       <h3 className="text-base font-semibold">We have packages for you</h3>
-      <p className="text-sm text-gray-500 mt-1 mb-4">Bundle your {state.serviceType} with a package — or skip this and go straight to payment.</p>
+      <p className="text-sm text-gray-500 mt-1 mb-4">
+        {embedded
+          ? `Optional — bundle your ${state.serviceType} with a package (click again to deselect), or just continue without one.`
+          : `Bundle your ${state.serviceType} with a package — or skip this and go straight to payment.`}
+      </p>
       {plans === null ? (
         <p className="text-sm text-gray-400 py-6 text-center">Loading packages…</p>
       ) : plans.length === 0 ? (
-        <Note variant="info" body="No packages are available for this registration right now. You can continue to payment or request a call." />
+        <Note variant="info" body={embedded ? "No packages are available for this registration right now. You can continue." : "No packages are available for this registration right now. You can continue to payment or request a call."} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {plans.map((p, i) => {
@@ -4635,7 +4803,7 @@ function PackagesBody({ A, state, bump, onPay, onCallback, onBack }) {
         </div>
       )}
 
-      <div className="mt-6 border-t border-gray-100 pt-5">
+      {!embedded && <div className="mt-6 border-t border-gray-100 pt-5">
         <h3 className="text-base font-semibold mb-3">Would you like to pay and continue, or request a call?</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button onClick={onPay} className="py-3 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700">💳 Pay &amp; Continue →</button>
@@ -4645,7 +4813,7 @@ function PackagesBody({ A, state, bump, onPay, onCallback, onBack }) {
         </div>
         <p className="text-xs text-gray-400 mt-2">Requesting a call saves your quote — one of our advisors will call you. Nothing is charged now.</p>
         <button onClick={onBack} className="w-full mt-3 py-2.5 rounded-lg text-gray-500 text-sm font-semibold hover:bg-gray-50">← Back</button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -4905,6 +5073,10 @@ function PaymentBody({ flow, A, state, bump, onPay, onCallback, onBack }) {
         <h3 className="font-semibold mb-2">Fee summary</h3>
         <div className="text-xs font-bold uppercase text-blue-600 mt-3 mb-1">Service charges</div>
         <div className="flex justify-between text-sm py-2 border-b border-dashed border-gray-100"><span>{state.serviceType} — professional fee</span><b>{rupee(f.service)}</b></div>
+        {/* Automatic lines (Business Registration: Name Reservation, director additions). */}
+        {f.extraLines.map(([name, amt]) => (
+          <div key={name} className="flex justify-between text-sm py-2 border-b border-dashed border-gray-100"><span>{name}</span><b>{rupee(amt)}</b></div>
+        ))}
         {f.addonLines.length > 0 && <div className="text-xs font-bold uppercase text-blue-600 mt-3 mb-1">Additional services</div>}
         {f.addonLines.map(([name, amt]) => (
           <div key={name} className="flex justify-between text-sm py-2 border-b border-dashed border-gray-100"><span>{name}</span><b>{rupee(amt)}</b></div>
@@ -4915,7 +5087,7 @@ function PaymentBody({ flow, A, state, bump, onPay, onCallback, onBack }) {
           <div className="flex justify-between text-sm py-2 border-b border-dashed border-gray-100"
             title="Government fee is paid by you directly at the time of service and is not included in this total">
             <span>Statutory / filing fees<span className="block text-xs text-amber-600">{rupee(f.clientPaidGovt)} directly paid by you at the time of service — not included in this total</span></span>
-            <b>{rupee(0)}</b>
+            <b>{rupee(f.govt)}</b>
           </div>
         ) : (
           <div className="flex justify-between text-sm py-2 border-b border-dashed border-gray-100"><span>Statutory / filing fees{f.govt ? "" : " (none for this service)"}</span><b>{rupee(f.govt)}</b></div>
