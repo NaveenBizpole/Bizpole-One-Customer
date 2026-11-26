@@ -1,6 +1,69 @@
 {
+  "routes": [
+    {
+      "route": "/trademark-classes",
+      "rewrite": "/trademark-classes/index.html"
+    },
+    {
+      "route": "/trademark-search/meta",
+      "rewrite": "/trademark-search/meta/index.html"
+    },
+    {
+      "route": "/trademark-registration/meta",
+      "rewrite": "/trademark-registration/meta/index.html"
+    },
+    {
+      "route": "/trademark-registration/apply",
+      "rewrite": "/trademark-registration/apply/index.html"
+    },
+    {
+      "route": "/trademark-registration",
+      "rewrite": "/trademark-registration/index.html"
+    },
+    {
+      "route": "/private-limited-company-registration/apply",
+      "rewrite": "/private-limited-company-registration/apply/index.html"
+    },
+    {
+      "route": "/private-limited-company-registration",
+      "rewrite": "/private-limited-company-registration/index.html"
+    },
+    {
+      "route": "/gst-registration/apply",
+      "rewrite": "/gst-registration/apply/index.html"
+    },
+    {
+      "route": "/gst-registration/meta",
+      "rewrite": "/gst-registration/meta/index.html"
+    },
+    {
+      "route": "/company-registration/meta",
+      "rewrite": "/company-registration/meta/index.html"
+    },
+    {
+      "route": "/company-registration",
+      "rewrite": "/company-registration/index.html"
+    },
+    {
+      "route": "/gst-registration",
+      "rewrite": "/gst-registration/index.html"
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/images/*", "/css/*", "/js/*"]
+    "exclude": [
+      "/assets/*",
+      "/images/*",
+      "/css/*",
+      "/js/*",
+      "/trademark-registration/*",
+      "/trademark-search/meta/*",
+      "/trademark-search/img/*",
+      "/trademark-classes/*",
+      "/private-limited-company-registration/*",
+      "/gst-registration/*",
+      "/company-registration/*",
+      "/lp/*"
+    ]
   }
 }

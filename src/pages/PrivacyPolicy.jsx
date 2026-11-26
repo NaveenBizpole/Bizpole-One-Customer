@@ -3,7 +3,7 @@ import PolicyLayout from "../components/PolicyLayout";
 const sections = [
   {
     heading: "Introduction",
-    body: "BIZPOLE ONE (“App”) is operated by BIZPOLE BUSINESS SOLUTIONS PRIVATE LIMITED (“BIZPOLE”, “we”, “us” or “our”). This Privacy Policy explains how we collect, use, store and share information when you use the App.",
+    body: "BIZPOLE ONE (“App”) is operated by BIZPOLE BUSINESS ACUMEN PRIVATE LIMITED (“BIZPOLE”, “we”, “us” or “our”). This Privacy Policy explains how we collect, use, store and share information when you use the App.",
   },
   {
     heading: "Information We Collect",
@@ -16,6 +16,11 @@ const sections = [
   {
     heading: "Sharing and Security",
     body: "We may share relevant information with authorised employees, professional advisers, service providers, government departments or regulators where necessary for providing services or complying with law. We take reasonable measures to protect information against unauthorised access, loss or misuse.",
+  },
+  {
+    // Required disclosure for the Meta Pixel (Meta Business Tools Terms) and Google Analytics.
+    heading: "Cookies, Analytics and Advertising",
+    body: "Our website uses cookies and similar technologies, including Google Analytics and the Meta (Facebook/Instagram) Pixel, to understand how visitors use our pages, measure the performance of our advertisements and show relevant Bizpole advertisements to people who have visited our website. These tools may collect information such as the pages you visit, actions you take on them, your device and browser, and the advertisement that brought you to us; Google and Meta process this information under their own privacy policies. You can control or delete cookies in your browser settings, and manage how Meta uses this information for advertising in your Facebook or Instagram Ad Preferences.",
   },
   {
     heading: "Retention and Your Rights",

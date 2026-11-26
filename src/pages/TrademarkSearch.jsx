@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { trackEvent } from "../utils/analytics";
+import { metaPixelPage, metaPixelTrack } from "../utils/metaPixel";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { FaSearch, FaRegCopyright, FaChevronLeft, FaChevronRight, FaArrowRight, FaFilePdf, FaLock, FaImage, FaTimes } from "react-icons/fa";
+import { FaSearch,FaChevronLeft, FaChevronRight, FaArrowRight, FaFilePdf, FaLock, FaImage, FaTimes, FaWhatsapp } from "react-icons/fa";
 import {
   searchTrademarks,
   searchTrademarksByImage,
@@ -9,15 +11,18 @@ import {
   getTrademarkSearchHistoryEntry,
   getTrademarkAssessment,
   fetchTrademarkImage,
+  sendTrademarkReportToWhatsApp,
 } from "../api/TrademarkApi";
 import { NICE_CLASSES } from "../components/ExixistingCompany/existingCompanyData";
 import { LeadCaptureModal, requireVerifiedCustomer } from "../components/ExixistingCompany/FlowRunner";
-import { FiDatabase, FiZap, FiLock, FiDownload } from "react-icons/fi";
-import { HiOutlineShieldCheck } from "react-icons/hi";
+import { FiDownload } from "react-icons/fi";
 import TrademarkReport from "../components/Trademark/TrademarkReport";
 import TrademarkHeroArt from "../components/Trademark/TrademarkHeroArt";
+import TrademarkLandingSections from "../components/Trademark/TrademarkLandingSections";
 import ClassSelect from "../components/Trademark/ClassSelect";
 import HistoryMenu from "../components/Trademark/HistoryMenu";
+import WhatsAppReportModal from "../components/Trademark/WhatsAppReportModal";
+import SigninModal from "../components/Modals/SigninModal";
 import ServiceDetails from "./ServiceDetails";
 import { saveElementAsPdf } from "../utils/elementToPdf";
 import "../components/newco-theme.css";
@@ -45,12 +50,51 @@ const useIsPhone = () => {
   return isPhone;
 };
 
+// Highlight-card icons (same line icons as the static /trademark-search/meta page).
+const hlIcon = (children) => {
+  const Icon = () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+  return Icon;
+};
+
 const HIGHLIGHTS = [
-  { icon: FiDatabase, title: "Official Database", text: "Data from Indian Trademark Registry" },
-  { icon: HiOutlineShieldCheck, title: "Up to date", text: "Latest trademark records" },
-  { icon: FiZap, title: "Fast & Accurate", text: "Get results in seconds" },
-  { icon: FiLock, title: "Trusted Information", text: "For reference only" },
+  {
+    icon: hlIcon(<><path d="M3 21l1.65-4.6A8.5 8.5 0 1 1 7.6 19.4z" /><path d="M9 10.5c.5 1.6 1.9 3 3.5 3.5l1.2-1.1 2 .9c-.2 1.3-1.2 2-2.4 1.8-2.9-.5-5.3-2.9-5.8-5.8-.2-1.2.5-2.2 1.8-2.4l.9 2z" /></>),
+    title: "Free report on WhatsApp",
+    text: "Saved in your chat, not lost in email",
+  },
+  {
+    icon: hlIcon(<><path d="M3.5 17a9 9 0 1 1 17 0" /><path d="M12 14l4-5" /><circle cx="12" cy="14" r="1.5" /></>),
+    title: "Approval score",
+    text: <>Your approval odds, <span className="whitespace-nowrap">0–100</span></>,
+  },
+  {
+    icon: hlIcon(<path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 11v2" />),
+    title: "Sound-alike check",
+    text: "Catches names that sound similar",
+  },
+  {
+    icon: hlIcon(<><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /><path d="M16.5 3.5l1.5 1.5 3-3" /></>),
+    title: "Next steps",
+    text: "What to fix before you file",
+  },
 ];
+
+// "Brand names checked" counter — same formula as the static page: starts at 200 on
+// 20 Nov 2026 (IST) and climbs 10–20 a day. NOTE: computed, not read from real searches.
+function brandsCheckedCount() {
+  const DAY = 864e5, start = Date.UTC(2026, 10, 20) - 19800000;
+  const t = Date.now() - start, days = Math.max(0, Math.floor(t / DAY)), frac = t > 0 ? (t % DAY) / DAY : 0;
+  const inc = (i) => 10 + ((Math.imul(i + 7, 2654435761) >>> 0) % 11);
+  let v = 200;
+  for (let i = 0; i < days; i++) v += inc(i);
+  v += Math.floor(inc(days) * frac);
+  if (v % 10 === 0) v += 1;
+  return v.toLocaleString("en-IN");
+}
 
 const LOGO_TYPES = ["image/png", "image/jpeg"];
 const LOGO_MAX_BYTES = 2 * 1024 * 1024;
@@ -114,6 +158,7 @@ export default function TrademarkSearch({ embedded = false }) {
   const [showTrademarkService, setShowTrademarkService] = useState(false);
   const openTrademarkService = () => {
     if (!embedded) {
+      metaPixelTrack("TMApplyClick", { cta: "search-results" });
       navigate(`/services/${TRADEMARK_SERVICE_ID}`);
       return;
     }
@@ -167,16 +212,30 @@ export default function TrademarkSearch({ embedded = false }) {
     loadHistory();
   }, [loadHistory]);
 
+  // Meta Pixel (public page only — not the signed-in dashboard copy): retargeting audience
+  useEffect(() => {
+    if (!embedded) metaPixelPage({ content_name: "Free Trademark Search" });
+  }, [embedded]);
+
   // Probability of registration for the brand-name search on screen. Fetched
   // once per search (not per page) after the report is unlocked; the server
   // caches it and saves it with the history entry.
   const [assessment, setAssessment] = useState(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const hasResults = !!result?.results?.length;
+  // Visitors who got the report on WhatsApp aren't signed in, so /assessment
+  // would refuse them — the WhatsApp send returns the assessment instead.
+  const [waAssessment, setWaAssessment] = useState(null); // { q, tmClass, data }
   useEffect(() => {
     setAssessment(null);
     // A name + logo search is assessed on its name.
     if (!unlocked || !hasResults || !hasBrandName(submitted?.type)) return undefined;
+    if (!localStorage.getItem("token")) {
+      if (waAssessment && waAssessment.q === submitted.q && waAssessment.tmClass === (submitted.tmClass || "")) {
+        setAssessment(waAssessment.data);
+      }
+      return undefined;
+    }
     let current = true;
     setAssessmentLoading(true);
     getTrademarkAssessment({ q: submitted.q, classes: submitted.tmClass ? [submitted.tmClass] : [] })
@@ -192,7 +251,7 @@ export default function TrademarkSearch({ embedded = false }) {
     return () => {
       current = false;
     };
-  }, [unlocked, hasResults, submitted?.q, submitted?.type, submitted?.tmClass]);
+  }, [unlocked, hasResults, submitted?.q, submitted?.type, submitted?.tmClass, waAssessment]);
 
   const markLimitReached = (err) => {
     const usage = err.response?.data?.usage;
@@ -261,6 +320,41 @@ export default function TrademarkSearch({ embedded = false }) {
   // Lead is raised in the background rather than holding the report locked.
   const askToSignIn = () => requireVerifiedCustomer(gate, bumpGate, onVerified, { immediate: true });
 
+  // Not signed in: instead of sign-up, ask name, mobile, state and language and
+  // send the report to their WhatsApp (server saves it for that mobile and
+  // raises the Lead). The details are kept for this visit, so their later
+  // searches go to WhatsApp without asking again.
+  const [waOpen, setWaOpen] = useState(false);
+  const [waSignIn, setWaSignIn] = useState(false);
+  const [waNotice, setWaNotice] = useState("");
+  const waContact = useRef(null);
+
+  const sendToWhatsApp = async (contact, params, firstSend = true) => {
+    try {
+      const data = await sendTrademarkReportToWhatsApp({ ...contact, params, limit: PAGE_SIZE, firstSend });
+      setWaNotice(data.message);
+      if (data.assessment) setWaAssessment({ q: params.q, tmClass: params.tmClass || "", data: data.assessment });
+    } catch (err) {
+      throw new Error(err.response?.data?.message || "Could not send your report right now. Please try again.");
+    }
+  };
+
+  const submitWhatsAppDetails = async (contact) => {
+    await sendToWhatsApp(contact, lastSearch.current.params);
+    waContact.current = contact;
+    setWaOpen(false);
+    setUnlocked(true);
+  };
+
+  const askForReport = () => {
+    if (localStorage.getItem("token")) askToSignIn();
+    else {
+      setWaOpen(true);
+      trackEvent("whatsapp_report_form_open", { form: "trademark_whatsapp", path: window.location.pathname });
+      if (!embedded) metaPixelTrack("TMPopupOpen", { search_type: lastSearch.current?.params?.type });
+    }
+  };
+
   const activeType = SEARCH_TYPES.find((t) => t.value === type);
   const placeholder = (isPhone && activeType.shortPlaceholder) || activeType.placeholder;
 
@@ -269,6 +363,8 @@ export default function TrademarkSearch({ embedded = false }) {
     setError("");
     try {
       const data = await fetchSearch(params, nextPage);
+      if (!nextPage) trackEvent("trademark_search", { search_type: params.type, results: data?.total ?? data?.results?.length ?? 0 });
+      if (!nextPage && !embedded) metaPixelTrack("Search", { search_type: params.type, results: data?.total ?? data?.results?.length ?? 0 });
       setResult(data);
       setSubmitted(params);
       setPage(nextPage);
@@ -277,7 +373,12 @@ export default function TrademarkSearch({ embedded = false }) {
         setHistory((h) => ({ ...h, signedIn: true, usage: { used: data.usage.used, limit: data.usage.limit } }));
         loadHistory();
       }
-      if (!unlocked && data?.results?.length) askToSignIn();
+      if (data?.results?.length && !localStorage.getItem("token") && waContact.current) {
+        // A new search (not another page) by a visitor who already gave their details.
+        if (nextPage === 0) sendToWhatsApp(waContact.current, params, false).catch((err) => setError(err.message));
+      } else if (!unlocked && data?.results?.length) {
+        askForReport();
+      }
     } catch (err) {
       if (err.response?.data?.limitReached) markLimitReached(err);
       else setError(err.response?.data?.message || "Could not search trademarks right now. Please try again.");
@@ -354,6 +455,37 @@ export default function TrademarkSearch({ embedded = false }) {
     }
     runSearch({ q, type, tmClass }, 0);
   };
+
+  // Arriving from the /trademark-search landing page while signed in
+  // (?type=&q=&class=): set the tab/class, fill the box and run that search once.
+  // A logo search can't carry its file in a link, so it just opens the Logo tab.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current) return;
+    autoRan.current = true;
+    const sp = new URLSearchParams(window.location.search);
+    const t = SEARCH_TYPES.some((s) => s.value === sp.get("type")) ? sp.get("type") : "WORD_MARK";
+    const n = Number(sp.get("class"));
+    const cls = Number.isInteger(n) && n >= 1 && n <= 45 ? n : "";
+    if (!sp.get("type") && !sp.get("q")) return;
+    setType(t);
+    setTmClass(cls);
+    const q = (sp.get("q") || "").trim().slice(0, 100);
+    if (t === "IMAGE" || q.length < 2) return;
+    setQuery(q);
+    // Only auto-run when our own /trademark-search page sent the visitor here
+    // (it sets this one-time, same-tab flag) — a link from anywhere else just
+    // prefills, so it can't spend the customer's free searches.
+    let fromLanding = false;
+    try {
+      fromLanding = sessionStorage.getItem("tm_autorun") === q;
+      sessionStorage.removeItem("tm_autorun");
+    } catch {
+      fromLanding = false;
+    }
+    if (fromLanding) runSearch({ q, type: t, tmClass: cls }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDownload = async () => {
     if (!reportRef.current) return;
@@ -451,20 +583,24 @@ export default function TrademarkSearch({ embedded = false }) {
               transition={{ duration: 0.6 }}
               className="flex flex-col"
             >
-              <div className="text-center lg:pr-[12%]">
-                <span className="inline-flex items-center gap-3 px-6 py-2 rounded-full bg-[#FFF4C9] border border-[#F5D77A] text-[#5C3D00] text-[14px] md:text-[19px] font-semibold tracking-wide uppercase">
-                  <FaRegCopyright className="text-[#E8A000] text-[15px]" /> Indian Trademark Registry
-                </span>
-              </div>
-              <div className="w-full lg:w-[62%] xl:w-[64%] text-center mt-8 md:mt-[38px]">
-                <h1 className="text-[40px] sm:text-[54px] lg:text-[58px] xl:text-[66px] font-extrabold text-[#0B0B0B] leading-[0.95] tracking-tight">
-                  Protect your <span className="text-[#FFC21A]">brand.</span>
+              <div className="w-full lg:w-[62%] xl:w-[64%] text-center lg:text-left">
+                <p className="inline-flex items-center gap-2 rounded-full border border-[#FDE9A8] bg-[#FFF6D6] py-1.5 pl-3 pr-4 text-[11px] sm:text-[12px] font-semibold uppercase tracking-[0.08em] text-[#9A5B06]">
+                  <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-60 motion-safe:animate-ping" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-600" />
+                  </span>
+                  <b className="text-[15px] sm:text-[16px] font-extrabold normal-case tracking-normal text-[#0B0B0B] tabular-nums">
+                    {brandsCheckedCount()}
+                  </b>
+                  brand names checked so far
+                </p>
+                <h1 className="mt-4 text-[40px] sm:text-[54px] lg:text-[58px] xl:text-[66px] font-extrabold text-[#0B0B0B] leading-[1.1] tracking-tight">
+                  Brand protection
                   <br />
-                  Start with a <span className="text-[#FFC21A]">search.</span>
+                  starts with a <span className="text-[#FFC21A]">search.</span>
                 </h1>
-                <p className="text-gray-600 text-[15px] md:text-[17px] leading-[26px] max-w-[660px] mx-auto mt-8 md:mt-[38px]">
-                  Check whether your brand name or logo is already registered or applied for before you file in India.
-                  Search by brand name, owner, application number or logo and narrow it down by class.
+                <p className="text-gray-600 text-[15px] md:text-[17px] leading-[26px] max-w-[660px] mx-auto lg:mx-0 mt-5 md:mt-6">
+                  One free search today can save you a costly rebrand tomorrow. Get your expert report instantly on WhatsApp.
                 </p>
               </div>
             </motion.div>
@@ -475,13 +611,13 @@ export default function TrademarkSearch({ embedded = false }) {
             {HIGHLIGHTS.map(({ icon: Icon, title, text }) => (
               <div
                 key={title}
-                className="flex items-center gap-3 xl:gap-4 bg-white rounded-2xl px-4 xl:px-6 min-h-[102px] py-4 shadow-[0_8px_30px_rgba(0,0,0,0.06)] border border-white"
+                className="flex flex-col items-start gap-3 bg-white rounded-2xl px-5 xl:px-6 py-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] border border-white"
               >
-                <span className="shrink-0 w-12 h-12 xl:w-14 xl:h-14 rounded-xl flex items-center justify-center text-[22px] xl:text-[24px] bg-[#FFF6D6] text-[#F5B400]">
+                <span className="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center bg-[#FFF6D6] text-[#F5B400]">
                   <Icon />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[16px] xl:text-[18px] font-semibold text-black">{title}</p>
+                  <p className="text-[16px] xl:text-[18px] font-semibold text-black leading-snug">{title}</p>
                   <p className="text-[13.5px] xl:text-[14.5px] text-gray-500 leading-snug mt-0.5">{text}</p>
                 </div>
               </div>
@@ -514,13 +650,13 @@ export default function TrademarkSearch({ embedded = false }) {
           ) : (
           <form onSubmit={handleSubmit} className="xl:pl-[29px]">
             {/* One row on phones: smaller pills, scrolls sideways if a screen is too narrow */}
-            <div className="flex flex-nowrap sm:flex-wrap justify-start min-[360px]:justify-center gap-1.5 sm:gap-2 mb-6 sm:mb-8 lg:mb-[46px] xl:pr-[8%] overflow-x-auto sm:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex flex-nowrap sm:flex-wrap justify-center-safe gap-1 min-[400px]:gap-1.5 sm:gap-2 mb-6 sm:mb-8 lg:mb-[46px] xl:pr-[8%] overflow-x-auto sm:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {SEARCH_TYPES.map((t) => (
                 <button
                   key={t.value}
                   type="button"
                   onClick={() => setType(t.value)}
-                  className={`shrink-0 whitespace-nowrap h-[34px] sm:h-[37px] px-3 sm:px-4 rounded-full text-[13px] sm:text-[15px] font-medium border transition ${
+                  className={`shrink-0 whitespace-nowrap h-[34px] sm:h-[37px] px-2.5 min-[400px]:px-3 sm:px-4 rounded-full text-[13px] sm:text-[15px] font-medium border transition ${
                     type === t.value
                       ? "bg-[#111827] text-white border-[#111827]"
                       : "bg-white text-gray-700 border-gray-200 hover:border-black hover:text-black"
@@ -579,6 +715,7 @@ export default function TrademarkSearch({ embedded = false }) {
                 {/* md:flex-1 only — flex-1 in the phone column squashes the fixed height */}
                 <FaSearch className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
+                  id="tm-search-q"
                   type={type === "APPLICATION_NUMBER" ? "number" : "text"}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -804,12 +941,20 @@ export default function TrademarkSearch({ embedded = false }) {
                   <p className="text-sm text-gray-500">
                     Showing {startIndex + 1}–{startIndex + results.length}
                   </p>
-                  {!unlocked && !gate.leadGate && (
+                  {!unlocked && !gate.leadGate && !waOpen && (
                     <button
-                      onClick={askToSignIn}
+                      onClick={askForReport}
                       className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#FFC72C] hover:bg-[#FFBD00] text-black text-sm font-semibold"
                     >
-                      <FaLock /> Sign up to view report
+                      {localStorage.getItem("token") ? (
+                        <>
+                          <FaLock /> Sign up to view report
+                        </>
+                      ) : (
+                        <>
+                          <FaWhatsapp /> Get report on WhatsApp
+                        </>
+                      )}
                     </button>
                   )}
                   {unlocked && (
@@ -824,6 +969,16 @@ export default function TrademarkSearch({ embedded = false }) {
                 </div>
               )}
             </div>
+
+            {waNotice && (
+              <div className="mb-5 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                <FaWhatsapp className="mt-0.5 shrink-0 text-lg text-emerald-600" />
+                <p className="flex-1">{waNotice}</p>
+                <button type="button" aria-label="Dismiss" onClick={() => setWaNotice("")} className="text-emerald-600 hover:text-emerald-800">
+                  <FaTimes />
+                </button>
+              </div>
+            )}
 
             {results.length === 0 ? (
               <div className="rounded-2xl bg-white border border-gray-200 p-10 text-center">
@@ -926,6 +1081,16 @@ export default function TrademarkSearch({ embedded = false }) {
         )}
       </section>
 
+      {/* Landing content (How it works, report, why, CTA, FAQs) — public page only */}
+      {!embedded && (
+        <TrademarkLandingSections
+          onCheck={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setTimeout(() => document.getElementById("tm-search-q")?.focus({ preventScroll: true }), 450);
+          }}
+        />
+      )}
+
       {/* newco-theme recolours the modal's blue buttons to brand yellow, as in the
           Trademark Registration flow (NewCompanyFlow wraps FlowRunner the same way). */}
       {gate.leadGate && (
@@ -937,6 +1102,29 @@ export default function TrademarkSearch({ embedded = false }) {
             subtitle="We'll verify your mobile with a code emailed to you. Your Trademark Search Report will also be sent to your email."
           />
         </div>
+      )}
+
+      {waOpen && (
+        <WhatsAppReportModal
+          initial={waContact.current}
+          onSubmit={submitWhatsAppDetails}
+          onClose={() => setWaOpen(false)}
+          onSignIn={() => {
+            setWaOpen(false);
+            setWaSignIn(true);
+          }}
+        />
+      )}
+      {/* "Already have an account? Sign in" from the WhatsApp form — then the
+          usual signed-in path (report unlocked, saved to their history). */}
+      {waSignIn && (
+        <SigninModal
+          onClose={() => setWaSignIn(false)}
+          onSuccess={() => {
+            setWaSignIn(false);
+            askToSignIn();
+          }}
+        />
       )}
     </div>
   );

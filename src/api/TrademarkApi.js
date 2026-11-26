@@ -1,5 +1,7 @@
 import { api } from "./axiosInstance";
 import { getLeadAttribution } from "../utils/leadAttribution";
+import { trackEvent } from "../utils/analytics";
+import { metaPixelTrack } from "../utils/metaPixel";
 
 // A tracked search can create the customer's Lead / Deal in the CRM — its
 // ad-click attribution (JSON) sets that record's source.
@@ -126,3 +128,49 @@ export async function runTrademarkSearch(name, tmClass) {
     }))
     .sort((x, y) => SIMILARITY_RANK[x.similarity] - SIMILARITY_RANK[y.similarity]);
 }
+
+// Signed-out visitor on the Trademark Search page: their contact details in
+// place of sign-up, and the search on screen (params as the page keeps them:
+// { q, type, tmClass, file? }) — the server saves it for the customer with this
+// mobile and sends the report link to it on WhatsApp (server: POST
+// /api/trademark/whatsapp-report). Resolves { whatsappSent, message }.
+// `firstSend`: true when sent from the WhatsApp details form (the server raises
+// the visitor's Lead then); false for their later searches in the same visit.
+export const sendTrademarkReportToWhatsApp = async ({ name, mobile, state, params, limit = 10, firstSend = true }) => {
+  const form = new FormData();
+  form.append("name", name);
+  form.append("mobile", mobile);
+  form.append("state", state);
+  if (params.file) form.append("image", params.file);
+  // A logo-only search is identified by its image; its q is just "Logo: <file>".
+  if (params.type !== "IMAGE") form.append("q", params.q);
+  if (!params.file) form.append("type", params.type);
+  if (params.tmClass) form.append("classes", params.tmClass);
+  form.append("limit", limit);
+  const searchType = params.file ? "IMAGE" : params.type;
+  let data;
+  try {
+    ({ data } = await api.post("/api/trademark/whatsapp-report", form));
+  } catch (err) {
+    trackEvent("whatsapp_report_failed", { search_type: searchType, first_send: firstSend });
+    throw err;
+  }
+  // No OTP here: the WhatsApp number is the contact, and this call also inserts
+  // the visitor's Lead — so the first send counts as a lead in Analytics.
+  trackEvent("whatsapp_report_sent", {
+    search_type: searchType,
+    first_send: firstSend,
+    whatsapp_sent: data?.whatsappSent !== false,
+    state,
+  });
+  if (firstSend) {
+    trackEvent("generate_lead", { lead_source: "trademark_whatsapp", method: "whatsapp", service: "Trademark Registration", state });
+    // Meta Pixel: a standard Lead only when this send created the customer (the server
+    // returns reportUrl then = a new CRM lead); an existing customer is a custom event.
+    // Same rule as the /trademark-search/meta ads page. No-op unless the pixel loaded.
+    const pixelParams = { content_name: "Free Trademark Search", search_type: searchType, state };
+    if (data?.reportUrl) metaPixelTrack("Lead", pixelParams, `tmlead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    else metaPixelTrack("TMExistingCustomer", pixelParams);
+  }
+  return data;
+};
